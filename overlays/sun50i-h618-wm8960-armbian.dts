@@ -1,0 +1,121 @@
+/dts-v1/;
+/plugin/;
+
+/*
+ * WM8960 Audio HAT Overlay for Orange Pi Zero 2W (H618) — Armbian
+ *
+ * Applied to the base DTB at install time using fdtoverlay.
+ *
+ * Differences from the vendor BSP (Orange Pi OS) overlay:
+ * - Enables ahub_dam_plat (AHUB shared register space) which is disabled by default
+ * - Adds I2C1 pinctrl (PI7/PI8) — mainline kernel requires explicit pin muxing
+ *
+ * This overlay:
+ * 1. Configures PI1-PI4 pins for I2S0 (BCLK, LRCK, DOUT, DIN)
+ * 2. Enables AHUB DAM platform (shared AHUB register space at 0x5097000)
+ * 3. Adds AHUB0 platform device for external I2S
+ * 4. Adds AHUB0 machine driver binding WM8960 codec
+ * 5. Enables I2C1 with pinctrl (PI7/PI8) and adds WM8960 codec at address 0x1a
+ */
+
+/ {
+    compatible = "allwinner,sun50i-h616";
+
+    /* I2S0 pin mux (PI1-PI4) */
+    fragment@0 {
+        target-path = "/soc/pinctrl@300b000";
+        __overlay__ {
+            i2s0_pins_a: i2s0-pins-a {
+                pins = "PI1", "PI2";
+                function = "i2s0";
+                drive-strength = <20>;
+                bias-disable;
+            };
+            i2s0_pins_b: i2s0-pins-b {
+                pins = "PI3";
+                function = "i2s0_dout0";
+                drive-strength = <20>;
+                bias-disable;
+            };
+            i2s0_pins_c: i2s0-pins-c {
+                pins = "PI4";
+                function = "i2s0_din0";
+                drive-strength = <20>;
+                bias-disable;
+            };
+        };
+    };
+
+    /* Enable AHUB DAM — provides shared register space needed by ahub0_plat */
+    fragment@1 {
+        target-path = "/soc/ahub_dam_plat@5097000";
+        __overlay__ {
+            status = "okay";
+        };
+    };
+
+    /* AHUB0 platform and machine driver */
+    fragment@2 {
+        target-path = "/soc";
+        __overlay__ {
+            ahub0_plat: ahub0_plat {
+                #sound-dai-cells = <0>;
+                compatible = "allwinner,sunxi-snd-plat-ahub";
+                apb_num = <0>;
+                dmas = <&dma 3>, <&dma 3>;
+                dma-names = "tx", "rx";
+                playback_cma = <128>;
+                capture_cma = <128>;
+                tx_fifo_size = <128>;
+                rx_fifo_size = <128>;
+                tdm_num = <0>;
+                tx_pin = <0>;
+                rx_pin = <0>;
+                pinctrl-names = "default";
+                pinctrl-0 = <&i2s0_pins_a>, <&i2s0_pins_b>, <&i2s0_pins_c>;
+                status = "okay";
+            };
+
+            ahub0_mach {
+                compatible = "allwinner,sunxi-snd-mach";
+                soundcard-mach,name = "ahub0wm8960";
+                soundcard-mach,format = "i2s";
+                soundcard-mach,frame-master = <&ahub0_cpu>;
+                soundcard-mach,bitclock-master = <&ahub0_cpu>;
+                soundcard-mach,slot-num = <2>;
+                soundcard-mach,slot-width = <32>;
+                status = "okay";
+
+                ahub0_cpu: soundcard-mach,cpu {
+                    sound-dai = <&ahub0_plat>;
+                    soundcard-mach,pll-fs = <4>;
+                    soundcard-mach,mclk-fs = <0>;
+                };
+
+                soundcard-mach,codec {
+                    sound-dai = <&wm8960>;
+                };
+            };
+        };
+    };
+
+    /* Enable I2C1 with pinctrl and add WM8960 codec */
+    fragment@3 {
+        target-path = "/soc/i2c@5002400";
+        __overlay__ {
+            status = "okay";
+            pinctrl-names = "default";
+            pinctrl-0 = <&i2c1_pi_pins>;
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            wm8960: wm8960@1a {
+                compatible = "wlf,wm8960";
+                reg = <0x1a>;
+                #sound-dai-cells = <0>;
+                wlf,shared-lrclk;
+                status = "okay";
+            };
+        };
+    };
+};

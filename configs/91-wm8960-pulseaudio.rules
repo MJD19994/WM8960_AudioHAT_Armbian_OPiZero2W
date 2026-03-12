@@ -1,0 +1,15 @@
+# WM8960 Audio HAT — PulseAudio profile set assignment
+#
+# Tells PulseAudio to use our custom profile set for the WM8960 card.
+# The custom path files use volume=merge instead of the default volume=off,
+# preventing PA from resetting ALSA mixer levels to 0% on startup.
+#
+# Installed to: /etc/udev/rules.d/91-wm8960-pulseaudio.rules
+
+SUBSYSTEM!="sound", GOTO="wm8960_end"
+ACTION!="change", GOTO="wm8960_end"
+KERNEL!="card*", GOTO="wm8960_end"
+
+ATTR{id}=="ahub0wm8960", ENV{PULSE_PROFILE_SET}="wm8960-audiohat.conf"
+
+LABEL="wm8960_end"

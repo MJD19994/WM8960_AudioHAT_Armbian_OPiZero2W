@@ -1,0 +1,14 @@
+[Unit]
+Description=WM8960 Audio HAT Configuration
+After=sound.target
+Requires=sound.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/wm8960-mixer-config.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

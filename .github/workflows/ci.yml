@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main, testing]
+  pull_request:
+    branches: [main]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Validate shell scripts
+        run: |
+          shellcheck install.sh
+          shellcheck uninstall.sh
+          shellcheck service/wm8960-mixer-config.sh
+          shellcheck scripts/test-audio.sh
+
+  dts-compile:
+    name: DTS Compilation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install device-tree-compiler
+        run: sudo apt-get install -y device-tree-compiler
+
+      - name: Compile overlay
+        run: |
+          dtc -@ -I dts -O dtb -o /tmp/wm8960.dtbo overlays/sun50i-h618-wm8960-armbian.dts
+          echo "Overlay compiled successfully ($(stat -c%s /tmp/wm8960.dtbo) bytes)"

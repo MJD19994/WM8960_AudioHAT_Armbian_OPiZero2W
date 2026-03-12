@@ -1,0 +1,306 @@
+# WM8960 Audio HAT Drivers for Armbian (Orange Pi Zero 2W)
+
+Complete audio support for WM8960-based audio HATs (including ReSpeaker 2-Mic HAT) on the Orange Pi Zero 2W running Armbian.
+
+## Features
+
+- Full WM8960 codec support via DKMS (auto-builds for your kernel)
+- Stereo audio playback through headphones and/or speaker
+- Stereo audio recording from onboard microphones
+- Simultaneous headphone and speaker output
+- Automatic DKMS module rebuild on kernel upgrades
+- Complete mixer configuration (all WM8960 controls set to known defaults)
+- Multi-application audio support (dmix/dsnoop)
+- PulseAudio and PipeWire integration (auto-detected)
+- Hardware ALC, Noise Gate, and 3D Enhancement controls exposed
+
+## Hardware Compatibility
+
+**Tested on:**
+- Orange Pi Zero 2W (Allwinner H618)
+- ReSpeaker 2-Mic Pi HAT (WM8960 codec)
+
+**Should work on (untested):**
+- Other WM8960-based audio HATs on the Orange Pi Zero 2W
+
+**Supported OS:**
+- [Armbian Trixie (kernel 6.12.76-current-sunxi64)](https://www.armbian.com/orangepi-zero2w/)
+
+**Requirements:**
+- All prerequisites (I2C tools, device-tree-compiler, ALSA utils, DKMS, kernel headers, build tools) are installed automatically by the installer
+
+## Quick Start
+
+### Update Your System
+
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git    # Armbian may not include git by default
+```
+
+### Installation
+
+```bash
+git clone https://github.com/MJD19994/WM8960_AudioHAT_Armbian_OPiZero2W
+cd WM8960_AudioHAT_Armbian_OPiZero2W
+chmod +x install.sh
+sudo ./install.sh
+sudo reboot
+```
+
+The installer:
+- Installs kernel headers from apt, then builds the WM8960 module via DKMS
+- Patches the device tree with the WM8960 overlay
+- Installs the mixer configuration service and ALSA config
+- Auto-detects and configures PulseAudio or PipeWire if installed
+
+### Testing Audio
+
+After reboot, run the interactive test script:
+
+```bash
+# Full interactive test (diagnostics + playback + recording tests)
+cd WM8960_AudioHAT_Armbian_OPiZero2W
+sudo chmod +x scripts/test-audio.sh
+sudo ./scripts/test-audio.sh
+```
+
+```bash
+# Diagnostics only (no interactive prompts — useful for debugging)
+sudo ./scripts/test-audio.sh --diagnostics-only
+```
+
+Or test manually:
+
+```bash
+# List audio devices (find the card number for ahub0wm8960)
+aplay -l
+
+# Test with speaker-test (using card name)
+speaker-test -D plughw:ahub0wm8960,0 -c 2 -r 48000 -t sine -f 1000 -l 2
+
+# Or use the default device (configured in asound.conf)
+speaker-test -c 2 -r 48000 -t sine -f 1000 -l 2
+
+# Test recording (5 seconds)
+arecord -D plughw:ahub0wm8960,0 -r 48000 -c 2 -f S16_LE -t wav -d 5 test.wav
+
+# Playback recording
+aplay -D plughw:ahub0wm8960,0 test.wav
+```
+
+**Note:** The WM8960 appears as **ahub0wm8960** sound card (typically card 0 on Armbian). Use the card name or `-D default` for portability.
+
+## How It Works
+
+### The Problem
+
+The Armbian kernel does not include a WM8960 codec driver. Without it, the codec is detected on I2C but produces no audio.
+
+### The Solution
+
+This package provides:
+
+1. **Device Tree Patching** (`overlays/`)
+   - Compiled and applied to the base DTB at install time using `fdtoverlay`
+   - Configures I2S0 pins (BCLK, LRCK, DOUT, DIN)
+   - Sets up AHUB audio subsystem
+   - Enables I2C1 and declares WM8960 codec at address 0x1a
+   - Enables AHUB DAM register space and I2C pin muxing (required on Armbian)
+
+2. **DKMS Kernel Module** (`dkms/`)
+   - Patched WM8960 codec driver built via DKMS against your running kernel
+   - Automatically rebuilds on kernel upgrades
+   - Includes PLL fixes for proper clock generation from onboard 24MHz crystal
+
+3. **Mixer Configuration Service** (`service/wm8960-mixer-config.sh`)
+   - Runs at boot via systemd
+   - Configures all WM8960 mixer controls to known defaults (playback routing, capture path, DAC/ADC settings, ALC, Noise Gate, 3D Enhancement, zero-cross detection)
+   - Restores saved mixer state on subsequent boots (via `alsactl`)
+
+4. **ALSA Configuration** (`configs/asound.conf`)
+   - Sets WM8960 as default audio device
+   - dmix plugin for multi-application playback
+   - dsnoop plugin for multi-application recording
+   - Automatic format/rate conversion via plug plugin
+
+## Uninstalling
+
+```bash
+sudo ./uninstall.sh
+sudo reboot
+```
+
+This removes the DKMS module, restores the original device tree, removes the systemd service and ALSA config. Your existing ALSA configuration is backed up before removal. Audio server configuration (PulseAudio/PipeWire) is also cleaned up.
+
+## Project Structure
+
+```text
+WM8960_AudioHAT_Armbian_OPiZero2W/
+├── README.md                           # This file
+├── LICENSE                             # License
+├── install.sh                          # Installation script
+├── uninstall.sh                        # Uninstallation script
+├── dkms/                               # DKMS kernel module source
+│   ├── wm8960.c                       # Patched WM8960 codec driver
+│   ├── wm8960.h                       # WM8960 register definitions
+│   ├── Makefile                       # DKMS build file
+│   ├── dkms.conf                      # DKMS configuration
+│   └── README.md                      # Driver patch documentation
+├── overlays/                           # Device tree overlay source
+│   ├── sun50i-h618-wm8960-armbian.dts # H618 overlay for Armbian
+│   └── README.md                      # Overlay documentation
+├── service/                            # System services
+│   ├── wm8960-mixer-config.sh         # Mixer configuration script
+│   └── wm8960-audio.service           # Systemd service
+├── configs/                            # Audio configuration
+│   ├── README.md                      # Config documentation + manual setup
+│   ├── asound.conf                    # ALSA config (sets default device)
+│   ├── pipewire-rate.conf             # PipeWire rate lock (48kHz)
+│   ├── wireplumber-wm8960.conf        # WirePlumber priority rules
+│   ├── pulse-daemon.conf              # PulseAudio daemon config
+│   ├── 91-wm8960-pulseaudio.rules     # PulseAudio udev rule
+│   ├── wm8960-audiohat.conf           # PulseAudio profile set
+│   ├── wm8960-output.conf             # PulseAudio output path
+│   └── wm8960-input.conf              # PulseAudio input path
+└── scripts/                            # Utility scripts
+    └── test-audio.sh                  # Diagnostics and interactive audio tests
+```
+
+## Audio Configuration
+
+### Mixer Controls
+
+Use `alsamixer` for an interactive mixer GUI:
+
+```bash
+alsamixer -c ahub0wm8960
+```
+
+Or use `amixer` for command-line control:
+
+**Playback controls:**
+
+```bash
+# Set headphone volume (0-127, default: 121)
+amixer -c ahub0wm8960 sset 'Headphone' 121
+
+# Set speaker volume (0-127, default: 121)
+amixer -c ahub0wm8960 sset 'Speaker' 121
+
+# Set DAC playback volume (0-255, default: 255)
+amixer -c ahub0wm8960 sset 'Playback' 255
+
+# Enable PCM output routing (required for audio output)
+amixer -c ahub0wm8960 sset 'Left Output Mixer PCM' on
+amixer -c ahub0wm8960 sset 'Right Output Mixer PCM' on
+```
+
+**Capture/recording controls:**
+
+```bash
+# Enable capture input routing (required for recording)
+amixer -c ahub0wm8960 sset 'Left Input Mixer Boost' on
+amixer -c ahub0wm8960 sset 'Right Input Mixer Boost' on
+amixer -c ahub0wm8960 sset 'Left Boost Mixer LINPUT1' on
+amixer -c ahub0wm8960 sset 'Right Boost Mixer RINPUT1' on
+
+# Enable capture and set volume (0-63, default: 45)
+amixer -c ahub0wm8960 sset 'Capture' on
+amixer -c ahub0wm8960 sset 'Capture' 45
+```
+
+**Saving custom mixer settings:**
+
+```bash
+# Save current mixer state to disk
+sudo alsactl store ahub0wm8960
+```
+
+On first boot, the service applies defaults and saves them. On subsequent boots, it restores your saved settings instead. To reset back to factory defaults:
+
+```bash
+sudo /usr/local/bin/wm8960-mixer-config.sh --reset-defaults
+```
+
+### Sample Rates
+
+The WM8960 hardware runs natively at **48kHz**. Other sample rates (16kHz, 8kHz, 44.1kHz, etc.) are transparently resampled by ALSA in software when using the `default` audio device.
+
+**Important:** Always use the `default` ALSA device — never open `hw:N,0` directly at non-48kHz rates, as this bypasses resampling and produces garbled audio.
+
+```bash
+# Playback at any sample rate (ALSA resamples to 48kHz automatically)
+aplay -D default my_audio.wav
+
+# Recording at 16kHz for voice/STT pipelines
+arecord -D default -r 16000 -c 1 -f S16_LE -d 5 voice_recording.wav
+```
+
+### Service Management
+
+```bash
+# Check service status
+sudo systemctl status wm8960-audio.service
+
+# View logs
+sudo journalctl -u wm8960-audio.service
+
+# Manually run configuration
+sudo /usr/local/bin/wm8960-mixer-config.sh
+
+# Run with debug output
+sudo /usr/local/bin/wm8960-mixer-config.sh --verbose
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**No audio output:**
+1. Check service status: `systemctl status wm8960-audio.service`
+2. Check dmesg: `dmesg | grep wm8960`
+3. Verify card detected: `aplay -l` (look for "ahub0wm8960")
+4. Check mixer: `amixer -c ahub0wm8960`
+
+**Audio too quiet:**
+- Increase mixer volumes: `amixer -c ahub0wm8960 sset 'Headphone' 127`
+- Check playback volume: `amixer -c ahub0wm8960 sset 'Playback' 255`
+
+**Recording not working:**
+1. Verify the capture signal path is enabled:
+   ```bash
+   amixer -c ahub0wm8960 sset 'Left Input Mixer Boost' on
+   amixer -c ahub0wm8960 sset 'Right Input Mixer Boost' on
+   amixer -c ahub0wm8960 sset 'Left Boost Mixer LINPUT1' on
+   amixer -c ahub0wm8960 sset 'Right Boost Mixer RINPUT1' on
+   amixer -c ahub0wm8960 sset 'Capture' on
+   ```
+2. Check capture volume: `amixer -c ahub0wm8960 sset 'Capture' 45`
+3. Try re-running: `sudo /usr/local/bin/wm8960-mixer-config.sh`
+
+## Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Test on Orange Pi Zero 2W with Armbian
+4. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Related Projects
+
+- [WM8960 Audio HAT for Orange Pi (Multi-OS)](https://github.com/MJD19994/WM8960_AudioHAT_OrangePiZero_Drivers) - Supports both Orange Pi OS and Armbian
+- [WM8960 Driver for Raspberry Pi](https://github.com/MJD19994/WM8960_AudioHAT_Drivers) - Raspberry Pi implementation
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/MJD19994/WM8960_AudioHAT_Armbian_OPiZero2W/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/MJD19994/WM8960_AudioHAT_Armbian_OPiZero2W/discussions)
+
+---
+
+**Status**: Working on Orange Pi Zero 2W (H618) with Armbian Trixie (kernel 6.12.76)
