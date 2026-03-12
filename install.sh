@@ -274,14 +274,14 @@ patch_dtb() {
     if [ ! -f "$DTS_SOURCE" ]; then
         log_error "Overlay not found: $DTS_SOURCE"
         log_error "Available overlays:"
-        ls -1 "$SCRIPT_DIR/overlays/"*.dts 2>/dev/null | while read -r f; do
+        find "$SCRIPT_DIR/overlays/" -name '*.dts' 2>/dev/null | while read -r f; do
             log_error "  $(basename "$f")"
         done
         exit 1
     fi
 
     WORK_DIR=$(mktemp -d)
-    trap "rm -rf '$WORK_DIR'" EXIT
+    trap 'rm -rf "$WORK_DIR"' EXIT
 
     log_debug "Overlay source: $DTS_SOURCE"
     log_debug "Work directory: $WORK_DIR"
