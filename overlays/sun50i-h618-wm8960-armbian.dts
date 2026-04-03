@@ -83,7 +83,7 @@
                 soundcard-mach,frame-master = <&ahub0_cpu>;
                 soundcard-mach,bitclock-master = <&ahub0_cpu>;
                 soundcard-mach,slot-num = <2>;
-                soundcard-mach,slot-width = <32>;
+                soundcard-mach,slot-width = <16>;
                 status = "okay";
 
                 ahub0_cpu: soundcard-mach,cpu {
