@@ -68,12 +68,13 @@ check_prerequisites() {
         [dtc]="device-tree-compiler"
         [fdtoverlay]="device-tree-compiler"
         [fdtget]="device-tree-compiler"
+        [i2cset]="i2c-tools"
         [amixer]="alsa-utils"
     )
 
     # Check for required commands, install missing packages
     local missing_pkgs=()
-    for cmd in dtc fdtoverlay fdtget amixer systemctl; do
+    for cmd in dtc fdtoverlay fdtget i2cset amixer systemctl; do
         if ! command -v "$cmd" &> /dev/null; then
             local pkg="${CMD_PKG[$cmd]:-}"
             if [ -n "$pkg" ]; then
