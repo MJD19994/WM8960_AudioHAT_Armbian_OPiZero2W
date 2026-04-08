@@ -103,8 +103,10 @@ static int wm8960_check_soc_pll(struct device *dev, int lrclk)
 		return 0;
 
 	ccu = ioremap(H616_CCU_BASE, H616_CCU_SIZE);
-	if (!ccu)
+	if (!ccu) {
+		dev_warn(dev, "H616 CCU ioremap failed, skipping PLL check\n");
 		return 0;
+	}
 
 	val = readl(ccu + H616_PLL_AUDIO_REG);
 	if (val & H616_PLL_AUDIO_LOCK) {
