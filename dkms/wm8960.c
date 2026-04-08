@@ -57,6 +57,7 @@
  */
 #ifdef CONFIG_ARCH_SUNXI
 #include <linux/io.h>
+#include <linux/of.h>
 
 #define H616_CCU_BASE           0x03001000
 #define H616_CCU_SIZE           0x1000
@@ -65,44 +66,89 @@
 #define H616_AUDIO_HUB_REG     0xa60
 #define H616_PLL_AUDIO_LOCK     BIT(28)
 
-/* Known-good values from kernel 6.12 during 48kHz playback */
-#define H616_PLL_AUDIO_GOOD      0xb9042701
-#define H616_PLL_AUDIO_SDM_GOOD  0xc001eb85
-#define H616_AUDIO_HUB_GOOD      0x81000000
+/*
+ * Known-good CCU register values from kernel 6.12, captured during playback.
+ * Two sets: one for the 48kHz sample rate family, one for the 44.1kHz family.
+ * The AHUB machine driver selects the family based on the requested rate:
+ *   48kHz family (8/12/16/24/32/48/64/96/192kHz): freq_point = 24576000
+ *   44.1kHz family (11025/22050/44100/88200/176400Hz): freq_point = 22579200
+ */
+struct h616_pll_fallback {
+	u32 pll_audio;      /* PLL_AUDIO register (CCU+0x078) */
+	u32 pll_audio_sdm;  /* PLL_AUDIO_SDM pattern (CCU+0x178) */
+	u32 audio_hub;      /* audio_hub mux/div (CCU+0xa60) */
+};
 
-static void wm8960_check_soc_pll(struct device *dev)
+static const struct h616_pll_fallback h616_pll_48k = {
+	.pll_audio     = 0xb9042701,  /* N=40, M=5, SDM_EN → 98.304 MHz */
+	.pll_audio_sdm = 0xc001eb85,
+	.audio_hub     = 0x81000000,  /* mux=pll-audio-2x, div=1 */
+};
+
+static const struct h616_pll_fallback h616_pll_44k1 = {
+	.pll_audio     = 0xb9021501,  /* N=22, M=3, SDM_EN → 90.3168 MHz */
+	.pll_audio_sdm = 0xc001288d,
+	.audio_hub     = 0x81000000,  /* mux=pll-audio-2x, div=1 */
+};
+
+static int wm8960_check_soc_pll(struct device *dev, int lrclk)
 {
 	void __iomem *ccu;
+	const struct h616_pll_fallback *fb;
 	u32 val;
+
+	/* Only applies to Allwinner H616/H618 SoCs */
+	if (!of_machine_is_compatible("allwinner,sun50i-h616") &&
+	    !of_machine_is_compatible("allwinner,sun50i-h618"))
+		return 0;
 
 	ccu = ioremap(H616_CCU_BASE, H616_CCU_SIZE);
 	if (!ccu)
-		return;
+		return 0;
 
 	val = readl(ccu + H616_PLL_AUDIO_REG);
 	if (val & H616_PLL_AUDIO_LOCK) {
 		/* PLL locked — AHUB/CCU clk_set_rate() worked correctly */
 		iounmap(ccu);
-		return;
+		return 0;
+	}
+
+	/* Select fallback values based on sample rate family */
+	switch (lrclk) {
+	case 11025:
+	case 22050:
+	case 44100:
+	case 88200:
+	case 176400:
+		fb = &h616_pll_44k1;
+		break;
+	default:
+		fb = &h616_pll_48k;
+		break;
 	}
 
 	/* PLL did not lock — apply known-good values from kernel 6.12 */
-	dev_info(dev, "H616 PLL_AUDIO not locked (0x%08x), applying fallback\n", val);
-	writel(H616_PLL_AUDIO_SDM_GOOD, ccu + H616_PLL_AUDIO_SDM_REG);
-	writel(H616_PLL_AUDIO_GOOD, ccu + H616_PLL_AUDIO_REG);
-	writel(H616_AUDIO_HUB_GOOD, ccu + H616_AUDIO_HUB_REG);
+	dev_info(dev, "H616 PLL_AUDIO not locked (0x%08x), applying %d Hz fallback\n",
+		 val, lrclk);
+	writel(fb->pll_audio_sdm, ccu + H616_PLL_AUDIO_SDM_REG);
+	writel(fb->pll_audio, ccu + H616_PLL_AUDIO_REG);
+	writel(fb->audio_hub, ccu + H616_AUDIO_HUB_REG);
 
 	usleep_range(1000, 2000);
 	val = readl(ccu + H616_PLL_AUDIO_REG);
-	if (val & H616_PLL_AUDIO_LOCK)
-		dev_info(dev, "H616 PLL_AUDIO locked after fallback\n");
-	else
-		dev_warn(dev, "H616 PLL_AUDIO still not locked (0x%08x)\n", val);
-
 	iounmap(ccu);
+
+	if (val & H616_PLL_AUDIO_LOCK) {
+		dev_info(dev, "H616 PLL_AUDIO locked after fallback\n");
+		return 0;
+	}
+
+	dev_warn(dev, "H616 PLL_AUDIO still not locked (0x%08x)\n", val);
+	return -EIO;
 }
 #else
-static inline void wm8960_check_soc_pll(struct device *dev) { }
+static inline int wm8960_check_soc_pll(struct device *dev, int lrclk)
+{ return 0; }
 #endif
 
 /* R25 - Power 1 */
@@ -951,15 +997,18 @@ static int wm8960_hw_params(struct snd_pcm_substream *substream,
 	/* set iface */
 	snd_soc_component_write(component, WM8960_IFACE1, iface);
 
-	wm8960->is_stream_in_use[tx] = true;
-
 	if (!wm8960->is_stream_in_use[!tx]) {
 		int ret = wm8960_configure_clocking(component);
+		if (ret)
+			return ret;
+
 		/* Check if the SoC audio PLL locked after AHUB configured it */
-		wm8960_check_soc_pll(component->dev);
-		return ret;
+		ret = wm8960_check_soc_pll(component->dev, wm8960->lrclk);
+		if (ret)
+			return ret;
 	}
 
+	wm8960->is_stream_in_use[tx] = true;
 	return 0;
 }
 
