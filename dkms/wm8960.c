@@ -95,6 +95,7 @@ static int wm8960_check_soc_pll(struct device *dev, int lrclk)
 {
 	void __iomem *ccu;
 	const struct h616_pll_fallback *fb;
+	int retries;
 	u32 val;
 
 	/* Only applies to Allwinner H616/H618 SoCs */
@@ -108,11 +109,15 @@ static int wm8960_check_soc_pll(struct device *dev, int lrclk)
 		return 0;
 	}
 
-	val = readl(ccu + H616_PLL_AUDIO_REG);
-	if (val & H616_PLL_AUDIO_LOCK) {
-		/* PLL locked — AHUB/CCU clk_set_rate() worked correctly */
-		iounmap(ccu);
-		return 0;
+	/* Poll for PLL lock — a fixed CCU driver may need a few ms to settle */
+	for (retries = 0; retries < 5; retries++) {
+		val = readl(ccu + H616_PLL_AUDIO_REG);
+		if (val & H616_PLL_AUDIO_LOCK) {
+			/* PLL locked — AHUB/CCU clk_set_rate() worked correctly */
+			iounmap(ccu);
+			return 0;
+		}
+		usleep_range(1000, 2000);
 	}
 
 	/* Select fallback values based on sample rate family */
@@ -136,8 +141,13 @@ static int wm8960_check_soc_pll(struct device *dev, int lrclk)
 	writel(fb->pll_audio, ccu + H616_PLL_AUDIO_REG);
 	writel(fb->audio_hub, ccu + H616_AUDIO_HUB_REG);
 
-	usleep_range(1000, 2000);
-	val = readl(ccu + H616_PLL_AUDIO_REG);
+	/* Poll for lock after fallback */
+	for (retries = 0; retries < 5; retries++) {
+		val = readl(ccu + H616_PLL_AUDIO_REG);
+		if (val & H616_PLL_AUDIO_LOCK)
+			break;
+		usleep_range(1000, 2000);
+	}
 	iounmap(ccu);
 
 	if (val & H616_PLL_AUDIO_LOCK) {
