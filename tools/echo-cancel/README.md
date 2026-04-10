@@ -1,14 +1,16 @@
-# WM8960 Echo Canceller (Bare ALSA)
+# WM8960 Echo Canceller (Bare ALSA) — Experimental
 
 Standalone acoustic echo cancellation for the WM8960 Audio HAT, using SpeexDSP. Works directly with ALSA — no PipeWire or PulseAudio required.
 
 Based on [voice-engine/ec](https://github.com/voice-engine/ec) (GPLv3), maintained as part of the WM8960 Audio HAT project.
 
+> **Note:** This provides ~15dB of echo attenuation — enough to help with wake-word detection but not full echo removal. For better results (~40dB), use the PipeWire or PulseAudio WebRTC AEC configs in [`configs/`](../../configs/README.md#echo-cancellation-setup).
+
 ## When to Use This
 
-Use this if you're running **bare ALSA** (no PipeWire or PulseAudio) and need echo cancellation — e.g., classic Rhasspy, custom voice assistant pipelines, or intercom applications.
+Use this if you're running **bare ALSA** (no PipeWire or PulseAudio) and need basic echo reduction — e.g., classic Rhasspy wake-word detection, or as a starting point for custom voice pipelines.
 
-If you have PipeWire or PulseAudio, use the WebRTC AEC configs in [`configs/`](../../configs/README.md#echo-cancellation-setup) instead — they provide better echo cancellation (~40dB vs ~20-30dB) with no background daemon.
+If you have PipeWire or PulseAudio, use the WebRTC AEC configs instead — they provide significantly better echo cancellation with no background daemon.
 
 ## How It Works
 
@@ -91,10 +93,10 @@ The `-f` parameter controls the AEC filter length in samples. Default is 4096 (2
 
 ## Limitations
 
-- **16kHz sample rate only** — SpeexDSP AEC works at 16kHz. Fine for voice assistants (Whisper, Rhasspy, etc.) but not for music.
-- **Mono playback** — the echo canceller accepts mono playback input through the FIFO.
-- **~20-30dB echo attenuation** — good for wake word detection and STT, but not as strong as WebRTC AEC (~40dB). For better cancellation, use PipeWire or PulseAudio.
-- **Requires tuning** — the delay parameter needs to match your specific setup.
+- **~15dB echo attenuation** — reduces echo enough to help wake-word engines, but the played audio is still audible in recordings. For near-complete echo removal, use PipeWire or PulseAudio WebRTC AEC (~40dB).
+- **Mono capture and playback** — the echo canceller operates in mono for both directions.
+- **48kHz sample rate** — matches the WM8960 hardware rate. Runs through the ALSA `default` device (dmix/dsnoop).
+- **May attenuate speech** — the SpeexDSP filter can reduce voice volume along with echo, especially at similar levels. This is a known limitation of the algorithm.
 
 ## Uninstall
 

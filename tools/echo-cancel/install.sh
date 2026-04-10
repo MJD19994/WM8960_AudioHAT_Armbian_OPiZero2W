@@ -64,7 +64,7 @@ Requires=wm8960-audio.service
 [Service]
 Type=simple
 ExecStartPre=/bin/rm -f /tmp/ec.input /tmp/ec.output
-ExecStart=${INSTALL_BIN} -i ${WM8960_CARD} -o ${WM8960_CARD} -r 16000 -c 2 -d 200 -f 4096
+ExecStart=${INSTALL_BIN} -i ${WM8960_CARD} -o ${WM8960_CARD} -r 48000 -c 1 -d 0 -f 4096
 Restart=on-failure
 RestartSec=5
 
