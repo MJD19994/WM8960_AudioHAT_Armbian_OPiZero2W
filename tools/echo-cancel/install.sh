@@ -14,8 +14,8 @@ SERVICE_NAME="wm8960-echo-cancel"
 INSTALL_BIN="/usr/local/bin/wm8960-ec"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
-# Default device — auto-detect WM8960 card name
-WM8960_CARD="plughw:ahub0wm8960,0"
+# Use the default ALSA device (dmix/dsnoop) for shared access
+WM8960_CARD="default"
 
 log() { echo "[EC] $1"; }
 log_error() { echo "[EC] ERROR: $1" >&2; }

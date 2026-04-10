@@ -56,12 +56,19 @@ int set_params(snd_pcm_t *handle, snd_pcm_hw_params_t *hw_params, unsigned rate,
 {
     int err;
     int mmap = 0;
+    unsigned actual_rate = rate;
 
     err = snd_pcm_hw_params_malloc(&hw_params);
-    assert(err >= 0);
+    if (err < 0) {
+        fprintf(stderr, "Cannot allocate hw params: %s\n", snd_strerror(err));
+        exit(1);
+    }
 
     err = snd_pcm_hw_params_any(handle, hw_params);
-    assert(err >= 0);
+    if (err < 0) {
+        fprintf(stderr, "Cannot init hw params: %s\n", snd_strerror(err));
+        exit(1);
+    }
 
     // mmap
     if (snd_pcm_hw_params_test_access(handle, hw_params, SND_PCM_ACCESS_MMAP_INTERLEAVED) >= 0)
@@ -73,28 +80,43 @@ int set_params(snd_pcm_t *handle, snd_pcm_hw_params_t *hw_params, unsigned rate,
     {
         err = snd_pcm_hw_params_set_access(handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED);
     }
-    assert(err >= 0);
+    if (err < 0) {
+        fprintf(stderr, "Cannot set access: %s\n", snd_strerror(err));
+        exit(1);
+    }
 
     err = snd_pcm_hw_params_set_format(handle, hw_params, SND_PCM_FORMAT_S16_LE);
-    assert(err >= 0);
+    if (err < 0) {
+        fprintf(stderr, "Cannot set format S16_LE: %s\n", snd_strerror(err));
+        exit(1);
+    }
 
-    err = snd_pcm_hw_params_set_rate(handle, hw_params, rate, 0);
-    assert(err >= 0);
+    err = snd_pcm_hw_params_set_rate_near(handle, hw_params, &actual_rate, 0);
+    if (err < 0) {
+        fprintf(stderr, "Cannot set rate %u: %s\n", rate, snd_strerror(err));
+        exit(1);
+    }
+    if (actual_rate != rate) {
+        fprintf(stderr, "Warning: rate %u not available, using %u\n", rate, actual_rate);
+    }
 
     err = snd_pcm_hw_params_set_channels(handle, hw_params, channels);
-    assert(err >= 0);
+    if (err < 0) {
+        fprintf(stderr, "Cannot set channels %u: %s\n", channels, snd_strerror(err));
+        exit(1);
+    }
 
-    err = snd_pcm_hw_params_set_buffer_size(handle, hw_params, chunk_size * 2);
-    assert(err >= 0);
-
-    // No supported by PulseAudio's ALSA plugin
-    // err = snd_pcm_hw_params_set_period_size(handle, hw_params, chunk_size, 0);
-    // assert(err >= 0);
+    /* Try exact buffer size, fall back to nearest if not supported */
+    snd_pcm_uframes_t buf_size = chunk_size * 2;
+    err = snd_pcm_hw_params_set_buffer_size_near(handle, hw_params, &buf_size);
+    if (err < 0) {
+        fprintf(stderr, "Warning: cannot set buffer size: %s\n", snd_strerror(err));
+    }
 
     err = snd_pcm_hw_params(handle, hw_params);
     if (err < 0)
     {
-        fprintf(stderr, "Unable to install hw params:");
+        fprintf(stderr, "Unable to install hw params: %s\n", snd_strerror(err));
         exit(1);
     }
 
