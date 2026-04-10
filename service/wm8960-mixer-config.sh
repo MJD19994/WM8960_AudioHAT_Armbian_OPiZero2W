@@ -23,10 +23,18 @@ while [ $# -gt 0 ]; do
             ;;
         --profile=*)
             PROFILE="${1#--profile=}"
+            if [ -z "$PROFILE" ]; then
+                echo "ERROR: --profile requires a non-empty name (e.g., --profile voice)" >&2
+                exit 1
+            fi
             ;;
         --profile)
             shift
-            PROFILE="${1:?ERROR: --profile requires a name (e.g., --profile voice)}"
+            if [ $# -eq 0 ] || case "$1" in -*) true;; *) false;; esac; then
+                echo "ERROR: --profile requires a name (e.g., --profile voice)" >&2
+                exit 1
+            fi
+            PROFILE="$1"
             ;;
         --list-profiles)
             echo "Available mixer profiles:"
@@ -63,6 +71,10 @@ while [ $# -gt 0 ]; do
             echo "  --verbose, -v     Show detailed step-by-step output for troubleshooting"
             echo "  --help, -h        Show this help message"
             exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown option '$1' (use --help or --list-profiles)" >&2
+            exit 1
             ;;
     esac
     shift

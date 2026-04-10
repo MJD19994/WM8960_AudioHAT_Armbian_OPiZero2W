@@ -166,7 +166,7 @@ Or manually copy them — see `configs/README.md` for the file locations and ins
 
 **Symptom:** Playing audio at rates other than 48kHz on `hw:X,0` sounds wrong, too fast, or fails with "Sample rate not available."
 
-**Why this happens:** The AHUB audio subsystem on the H618 SoC clocks its I2S bus at 48kHz. When you use the `hw:` device directly, ALSA talks to the hardware with no conversion — so non-48kHz audio gets played at the wrong speed.
+**Why this happens:** The AHUB audio subsystem on the H618 SoC configures its I2S bus for a fixed rate per session. When you use the `hw:` device directly, ALSA sends audio to the hardware with no format or rate conversion — so non-native-rate audio gets played at the wrong speed or is rejected entirely. The DKMS driver supports both 48kHz and 44.1kHz clock families, but the `hw:` device does not resample between them.
 
 ### Fix
 
@@ -189,7 +189,7 @@ The `plughw` plugin adds automatic format/rate conversion. The `default` device 
 
 **Symptom:** `dmesg` shows a warning like:
 
-```
+```text
 sun50i-h618-pinctrl 300b000.pinctrl: Error applying setting, reverse things back
 ```
 
