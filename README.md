@@ -1,5 +1,18 @@
 # WM8960 Audio HAT Drivers for Armbian (Orange Pi Zero 2W)
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/MJD19994/WM8960_AudioHAT_Armbian_OPiZero2W)](https://github.com/MJD19994/WM8960_AudioHAT_Armbian_OPiZero2W/releases)
+![Orange Pi Zero 2W](https://img.shields.io/badge/Orange%20Pi%20Zero%202W-supported-success?style=flat-square)
+![Kernel 6.12](https://img.shields.io/badge/kernel-6.12%20validated-2ea44f?style=flat-square)
+![Kernel 6.18](https://img.shields.io/badge/kernel-6.18%20validated-2ea44f?style=flat-square)
+![DKMS](https://img.shields.io/badge/DKMS-supported-yellow?style=flat-square)
+![ALSA](https://img.shields.io/badge/ALSA-integrated-blue?style=flat-square)
+![PulseAudio](https://img.shields.io/badge/PulseAudio-supported-blue?style=flat-square)
+![PipeWire](https://img.shields.io/badge/PipeWire-supported-blue?style=flat-square)
+![ReSpeaker](https://img.shields.io/badge/ReSpeaker%202--Mic-compatible-1f6feb?style=flat-square)
+![Waveshare](https://img.shields.io/badge/Waveshare%20WM8960-compatible-1f6feb?style=flat-square)
+![Seeed Studio](https://img.shields.io/badge/Seeed%20Studio-compatible-1f6feb?style=flat-square)
+
 Complete audio support for WM8960-based audio HATs (including ReSpeaker 2-Mic HAT) on the Orange Pi Zero 2W running Armbian.
 
 ## Features
@@ -18,10 +31,8 @@ Complete audio support for WM8960-based audio HATs (including ReSpeaker 2-Mic HA
 
 **Tested on:**
 - Orange Pi Zero 2W (Allwinner H618)
-- ReSpeaker 2-Mic Pi HAT (WM8960 codec)
-
-**Should work on (untested):**
-- Other WM8960-based audio HATs on the Orange Pi Zero 2W
+- ReSpeaker 2-Mic Pi HAT (Seeed Studio / Keyestudio)
+- Waveshare WM8960 Audio HAT
 
 **Supported OS:**
 - [Armbian Trixie (kernel 6.12.76-current-sunxi64)](https://www.armbian.com/orangepi-zero2w/)
