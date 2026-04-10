@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/MJD19994/WM8960_AudioHAT_Armbian_OPiZero2W)](https://github.com/MJD19994/WM8960_AudioHAT_Armbian_OPiZero2W/releases)
+[![CI](https://github.com/MJD19994/WM8960_AudioHAT_Armbian_OPiZero2W/actions/workflows/ci.yml/badge.svg)](https://github.com/MJD19994/WM8960_AudioHAT_Armbian_OPiZero2W/actions/workflows/ci.yml)
 ![Orange Pi Zero 2W](https://img.shields.io/badge/Orange%20Pi%20Zero%202W-supported-success?style=flat-square)
 ![Kernel 6.12](https://img.shields.io/badge/kernel-6.12%20validated-2ea44f?style=flat-square)
 ![Kernel 6.18](https://img.shields.io/badge/kernel-6.18%20validated-2ea44f?style=flat-square)
