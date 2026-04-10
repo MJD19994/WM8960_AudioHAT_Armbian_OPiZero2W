@@ -55,6 +55,7 @@ while [ $# -gt 0 ]; do
             echo "                Best for: high-quality recording, audio capture"
             echo ""
             echo "Usage: $(basename "$0") --profile <name>"
+            echo "       $(basename "$0") --profile=<name>"
             exit 0
             ;;
         --verbose|-v)
@@ -65,6 +66,7 @@ while [ $# -gt 0 ]; do
             echo ""
             echo "Options:"
             echo "  --profile <name>  Apply a named mixer profile (see --list-profiles)"
+            echo "                    Also accepts --profile=<name>"
             echo "  --list-profiles   Show available mixer profiles and descriptions"
             echo "  --reset-defaults  Force-apply factory mixer defaults, replacing any"
             echo "                    custom settings saved with 'alsactl store'"
@@ -478,8 +480,11 @@ configure_mixer() {
     if [ -n "$PROFILE" ]; then
         log "Applying mixer profile: $PROFILE"
         if apply_profile "$CARD_NUM" "$PROFILE"; then
-            alsactl store "$CARD_NUM" >/dev/null 2>&1 || true
-            log "Profile '$PROFILE' applied and saved!"
+            if alsactl store "$CARD_NUM" >/dev/null 2>&1; then
+                log "Profile '$PROFILE' applied and saved!"
+            else
+                log "WARNING: Profile '$PROFILE' applied, but failed to save mixer state"
+            fi
         else
             log "ERROR: Failed to apply profile '$PROFILE'"
             return 1
@@ -488,8 +493,11 @@ configure_mixer() {
     elif [ "$RESET_DEFAULTS" = true ]; then
         log "Resetting mixer to factory defaults (--reset-defaults)..."
         apply_mixer_defaults "$CARD_NUM"
-        alsactl store "$CARD_NUM" >/dev/null 2>&1 || true
-        log "Factory defaults applied and saved!"
+        if alsactl store "$CARD_NUM" >/dev/null 2>&1; then
+            log "Factory defaults applied and saved!"
+        else
+            log "WARNING: Factory defaults applied, but failed to save mixer state"
+        fi
     elif has_saved_state "$CARD_NUM"; then
         log "Restoring saved mixer state..."
         if alsactl restore "$CARD_NUM" >/dev/null 2>&1; then
@@ -497,15 +505,22 @@ configure_mixer() {
         else
             log "WARNING: Failed to restore saved state, applying defaults..."
             apply_mixer_defaults "$CARD_NUM"
-            alsactl store "$CARD_NUM" >/dev/null 2>&1 || true
+            if alsactl store "$CARD_NUM" >/dev/null 2>&1; then
+                log "Defaults saved!"
+            else
+                log "WARNING: Defaults applied, but failed to save mixer state"
+            fi
         fi
     else
         log "No saved state found — applying defaults..."
         apply_mixer_defaults "$CARD_NUM"
 
         # Save initial defaults so future boots know state exists
-        alsactl store "$CARD_NUM" >/dev/null 2>&1 || true
-        log "Mixer defaults applied and saved!"
+        if alsactl store "$CARD_NUM" >/dev/null 2>&1; then
+            log "Mixer defaults applied and saved!"
+        else
+            log "WARNING: Mixer defaults applied, but failed to save mixer state"
+        fi
     fi
 }
 
