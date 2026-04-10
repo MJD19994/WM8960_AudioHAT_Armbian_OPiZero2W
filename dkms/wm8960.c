@@ -27,6 +27,142 @@
 
 #include "wm8960.h"
 
+/* Compat: kernel 6.18+ removed legacy master/slave DAI format names,
+ * replaced with provider/consumer naming. Use #ifndef so this works
+ * on any kernel version regardless of vendor backports. */
+#ifndef SND_SOC_DAIFMT_CBM_CFM
+#define SND_SOC_DAIFMT_CBM_CFM		SND_SOC_DAIFMT_CBP_CFP
+#endif
+#ifndef SND_SOC_DAIFMT_CBS_CFS
+#define SND_SOC_DAIFMT_CBS_CFS		SND_SOC_DAIFMT_CBC_CFC
+#endif
+#ifndef SND_SOC_DAIFMT_MASTER_MASK
+#define SND_SOC_DAIFMT_MASTER_MASK	SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK
+#endif
+
+/*
+ * Workaround for Armbian kernel 6.13+ CCU driver regression on H616/H618.
+ *
+ * The CCU driver (ccu-sun50i-h616.c) changed the pll-audio divider chain and
+ * added sigma-delta modulation (SDM) in kernel 6.13. However, when the AHUB
+ * driver calls clk_set_rate(98304000), the CCU fails to engage the SDM path —
+ * the PLL never locks, producing a wrong clock rate and distorted audio.
+ *
+ * Since the AHUB driver is built-in and cannot be patched via DKMS, we detect
+ * the PLL lock failure from our codec's hw_params callback (which runs after
+ * AHUB's set_pll) and apply known-good register values as a fallback.
+ *
+ * When the CCU bug is fixed in a future kernel, the PLL will lock normally
+ * after AHUB's clk_set_rate() and this fallback will never execute.
+ */
+#ifdef CONFIG_ARCH_SUNXI
+#include <linux/io.h>
+#include <linux/of.h>
+
+#define H616_CCU_BASE           0x03001000
+#define H616_CCU_SIZE           0x1000
+#define H616_PLL_AUDIO_REG      0x078
+#define H616_PLL_AUDIO_SDM_REG  0x178
+#define H616_AUDIO_HUB_REG     0xa60
+#define H616_PLL_AUDIO_LOCK     BIT(28)
+
+/*
+ * Known-good CCU register values from kernel 6.12, captured during playback.
+ * Two sets: one for the 48kHz sample rate family, one for the 44.1kHz family.
+ * The AHUB machine driver selects the family based on the requested rate:
+ *   48kHz family (8/12/16/24/32/48/64/96/192kHz): freq_point = 24576000
+ *   44.1kHz family (11025/22050/44100/88200/176400Hz): freq_point = 22579200
+ */
+struct h616_pll_fallback {
+	u32 pll_audio;      /* PLL_AUDIO register (CCU+0x078) */
+	u32 pll_audio_sdm;  /* PLL_AUDIO_SDM pattern (CCU+0x178) */
+	u32 audio_hub;      /* audio_hub mux/div (CCU+0xa60) */
+};
+
+static const struct h616_pll_fallback h616_pll_48k = {
+	.pll_audio     = 0xb9042701,  /* N=40, M=5, SDM_EN → 98.304 MHz */
+	.pll_audio_sdm = 0xc001eb85,
+	.audio_hub     = 0x81000000,  /* mux=pll-audio-2x, div=1 */
+};
+
+static const struct h616_pll_fallback h616_pll_44k1 = {
+	.pll_audio     = 0xb9021501,  /* N=22, M=3, SDM_EN → 90.3168 MHz */
+	.pll_audio_sdm = 0xc001288d,
+	.audio_hub     = 0x81000000,  /* mux=pll-audio-2x, div=1 */
+};
+
+static int wm8960_check_soc_pll(struct device *dev, int lrclk)
+{
+	void __iomem *ccu;
+	const struct h616_pll_fallback *fb;
+	int retries;
+	u32 val;
+
+	/* Only applies to Allwinner H616/H618 SoCs */
+	if (!of_machine_is_compatible("allwinner,sun50i-h616") &&
+	    !of_machine_is_compatible("allwinner,sun50i-h618"))
+		return 0;
+
+	ccu = ioremap(H616_CCU_BASE, H616_CCU_SIZE);
+	if (!ccu) {
+		dev_warn(dev, "H616 CCU ioremap failed, skipping PLL check\n");
+		return 0;
+	}
+
+	/* Poll for PLL lock — a fixed CCU driver may need a few ms to settle */
+	for (retries = 0; retries < 5; retries++) {
+		val = readl(ccu + H616_PLL_AUDIO_REG);
+		if (val & H616_PLL_AUDIO_LOCK) {
+			/* PLL locked — AHUB/CCU clk_set_rate() worked correctly */
+			iounmap(ccu);
+			return 0;
+		}
+		usleep_range(1000, 2000);
+	}
+
+	/* Select fallback values based on sample rate family */
+	switch (lrclk) {
+	case 11025:
+	case 22050:
+	case 44100:
+	case 88200:
+	case 176400:
+		fb = &h616_pll_44k1;
+		break;
+	default:
+		fb = &h616_pll_48k;
+		break;
+	}
+
+	/* PLL did not lock — apply known-good values from kernel 6.12 */
+	dev_info(dev, "H616 PLL_AUDIO not locked (0x%08x), applying %d Hz fallback\n",
+		 val, lrclk);
+	writel(fb->pll_audio_sdm, ccu + H616_PLL_AUDIO_SDM_REG);
+	writel(fb->pll_audio, ccu + H616_PLL_AUDIO_REG);
+	writel(fb->audio_hub, ccu + H616_AUDIO_HUB_REG);
+
+	/* Poll for lock after fallback */
+	for (retries = 0; retries < 5; retries++) {
+		val = readl(ccu + H616_PLL_AUDIO_REG);
+		if (val & H616_PLL_AUDIO_LOCK)
+			break;
+		usleep_range(1000, 2000);
+	}
+	iounmap(ccu);
+
+	if (val & H616_PLL_AUDIO_LOCK) {
+		dev_info(dev, "H616 PLL_AUDIO locked after fallback\n");
+		return 0;
+	}
+
+	dev_warn(dev, "H616 PLL_AUDIO still not locked (0x%08x)\n", val);
+	return -EIO;
+}
+#else
+static inline int wm8960_check_soc_pll(struct device *dev, int lrclk)
+{ return 0; }
+#endif
+
 /* R25 - Power 1 */
 #define WM8960_VMID_MASK 0x180
 #define WM8960_VREF      0x40
@@ -873,11 +1009,18 @@ static int wm8960_hw_params(struct snd_pcm_substream *substream,
 	/* set iface */
 	snd_soc_component_write(component, WM8960_IFACE1, iface);
 
+	if (!wm8960->is_stream_in_use[!tx]) {
+		int ret = wm8960_configure_clocking(component);
+		if (ret)
+			return ret;
+
+		/* Check if the SoC audio PLL locked after AHUB configured it */
+		ret = wm8960_check_soc_pll(component->dev, wm8960->lrclk);
+		if (ret)
+			return ret;
+	}
+
 	wm8960->is_stream_in_use[tx] = true;
-
-	if (!wm8960->is_stream_in_use[!tx])
-		return wm8960_configure_clocking(component);
-
 	return 0;
 }
 

@@ -15,10 +15,48 @@ set -e
 # Parse command-line options
 RESET_DEFAULTS=false
 VERBOSE=false
-for arg in "$@"; do
-    case "$arg" in
+PROFILE=""
+while [ $# -gt 0 ]; do
+    case "$1" in
         --reset-defaults)
             RESET_DEFAULTS=true
+            ;;
+        --profile=*)
+            PROFILE="${1#--profile=}"
+            if [ -z "$PROFILE" ]; then
+                echo "ERROR: --profile requires a non-empty name (e.g., --profile voice)" >&2
+                exit 1
+            fi
+            ;;
+        --profile)
+            shift
+            if [ $# -eq 0 ] || case "$1" in -*) true;; *) false;; esac; then
+                echo "ERROR: --profile requires a name (e.g., --profile voice)" >&2
+                exit 1
+            fi
+            PROFILE="$1"
+            ;;
+        --list-profiles)
+            echo "Available mixer profiles:"
+            echo ""
+            echo "  voice         Boost mic gain, lower speaker volume, enable ALC"
+            echo "                Best for: voice assistants, STT, wake-word detection"
+            echo ""
+            echo "  music         Balanced output, ALC off, 3D enhancement off"
+            echo "                Best for: music playback, media, general listening"
+            echo ""
+            echo "  headphones    Lower volume, enable 3D stereo enhancement"
+            echo "                Best for: headphone listening, immersive audio"
+            echo ""
+            echo "  conferencing  Aggressive ALC, noise gate on, mic boost"
+            echo "                Best for: video calls, intercom, two-way audio"
+            echo ""
+            echo "  recording     Flat response, no processing, max dynamic range"
+            echo "                Best for: high-quality recording, audio capture"
+            echo ""
+            echo "Usage: $(basename "$0") --profile <name>"
+            echo "       $(basename "$0") --profile=<name>"
+            exit 0
             ;;
         --verbose|-v)
             VERBOSE=true
@@ -27,13 +65,21 @@ for arg in "$@"; do
             echo "Usage: $(basename "$0") [OPTIONS]"
             echo ""
             echo "Options:"
+            echo "  --profile <name>  Apply a named mixer profile (see --list-profiles)"
+            echo "                    Also accepts --profile=<name>"
+            echo "  --list-profiles   Show available mixer profiles and descriptions"
             echo "  --reset-defaults  Force-apply factory mixer defaults, replacing any"
             echo "                    custom settings saved with 'alsactl store'"
             echo "  --verbose, -v     Show detailed step-by-step output for troubleshooting"
             echo "  --help, -h        Show this help message"
             exit 0
             ;;
+        *)
+            echo "ERROR: Unknown option '$1' (use --help or --list-profiles)" >&2
+            exit 1
+            ;;
     esac
+    shift
 done
 
 DRIVER_PATH="/sys/bus/i2c/drivers/wm8960"
@@ -217,6 +263,203 @@ apply_mixer_defaults() {
     )
 }
 
+apply_profile_voice() {
+    # Voice assistant / STT profile:
+    #   - Mic gain boosted for clear voice capture
+    #   - Speaker volume lowered (avoid feedback into mic)
+    #   - ALC enabled to normalize speech levels
+    #   - Noise gate on to suppress background noise between utterances
+    local CARD_NUM="$1"
+    (
+    set +e
+
+    # Start from factory defaults as baseline
+    apply_mixer_defaults "$CARD_NUM"
+
+    # Lower speaker/headphone volume to reduce mic feedback
+    amixer -c "$CARD_NUM" sset "Headphone" 90 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "Speaker" 90 >/dev/null 2>&1
+
+    # Boost mic input gain (+29dB)
+    amixer -c "$CARD_NUM" cset name='Left Input Boost Mixer LINPUT1 Volume' 3 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" cset name='Right Input Boost Mixer RINPUT1 Volume' 3 >/dev/null 2>&1
+
+    # Raise capture volume
+    amixer -c "$CARD_NUM" sset "Capture" 55 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" cset name='ADC PCM Capture Volume' 230,230 >/dev/null 2>&1
+
+    # Enable ALC — auto-levels speech, handles varying distances from mic
+    amixer -c "$CARD_NUM" sset "ALC Function" "Stereo" >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ALC Max Gain" 7 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ALC Min Gain" 0 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ALC Target" 5 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ALC Hold Time" 1 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ALC Decay" 3 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ALC Attack" 2 >/dev/null 2>&1
+
+    # Enable noise gate to suppress background noise
+    amixer -c "$CARD_NUM" sset "Noise Gate" on >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "Noise Gate Threshold" 3 >/dev/null 2>&1
+
+    exit 0
+    )
+}
+
+apply_profile_music() {
+    # Music playback profile:
+    #   - Full output volume for clean playback
+    #   - ALC off (music has its own dynamics)
+    #   - 3D enhancement off (preserve original mix)
+    #   - Capture left at defaults (not the focus)
+    local CARD_NUM="$1"
+    (
+    set +e
+
+    apply_mixer_defaults "$CARD_NUM"
+
+    # Full output volume
+    amixer -c "$CARD_NUM" sset "Headphone" 121 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "Speaker" 121 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "Playback" 255 >/dev/null 2>&1
+
+    # Ensure ALC is off — preserve music dynamics
+    amixer -c "$CARD_NUM" sset "ALC Function" "Off" >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "Noise Gate" off >/dev/null 2>&1
+
+    # 3D off — don't color the original mix
+    amixer -c "$CARD_NUM" sset "3D" off >/dev/null 2>&1
+
+    exit 0
+    )
+}
+
+apply_profile_headphones() {
+    # Headphone listening profile:
+    #   - Reduced headphone volume for safe listening
+    #   - Speaker output muted (not needed)
+    #   - 3D stereo enhancement enabled for spatial sound
+    local CARD_NUM="$1"
+    (
+    set +e
+
+    apply_mixer_defaults "$CARD_NUM"
+
+    # Safe headphone volume — 100/127 (~-5dB from max)
+    amixer -c "$CARD_NUM" sset "Headphone" 100 >/dev/null 2>&1
+
+    # Mute speaker output
+    amixer -c "$CARD_NUM" sset "Speaker" 0 >/dev/null 2>&1
+
+    # Enable 3D stereo enhancement for immersive headphone experience
+    amixer -c "$CARD_NUM" sset "3D" on >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "3D Volume" 10 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "3D Filter Upper Cut-Off" "High" >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "3D Filter Lower Cut-Off" "Low" >/dev/null 2>&1
+
+    # ALC off
+    amixer -c "$CARD_NUM" sset "ALC Function" "Off" >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "Noise Gate" off >/dev/null 2>&1
+
+    exit 0
+    )
+}
+
+apply_profile_conferencing() {
+    # Conferencing / intercom profile:
+    #   - Aggressive ALC for hands-free mic (wide dynamic range handling)
+    #   - Noise gate on with higher threshold (suppress room noise)
+    #   - High mic boost for distant speakers
+    #   - Moderate output volume (avoid echo)
+    local CARD_NUM="$1"
+    (
+    set +e
+
+    apply_mixer_defaults "$CARD_NUM"
+
+    # Moderate output to reduce echo
+    amixer -c "$CARD_NUM" sset "Headphone" 100 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "Speaker" 100 >/dev/null 2>&1
+
+    # Max mic boost for distant capture (+29dB)
+    amixer -c "$CARD_NUM" cset name='Left Input Boost Mixer LINPUT1 Volume' 3 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" cset name='Right Input Boost Mixer RINPUT1 Volume' 3 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "Capture" 55 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" cset name='ADC PCM Capture Volume' 220,220 >/dev/null 2>&1
+
+    # Aggressive ALC — fast attack, slow decay, wide gain range
+    amixer -c "$CARD_NUM" sset "ALC Function" "Stereo" >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ALC Max Gain" 7 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ALC Min Gain" 0 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ALC Target" 6 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ALC Hold Time" 2 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ALC Decay" 5 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ALC Attack" 1 >/dev/null 2>&1
+
+    # Noise gate with higher threshold — suppress room ambient
+    amixer -c "$CARD_NUM" sset "Noise Gate" on >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "Noise Gate Threshold" 5 >/dev/null 2>&1
+
+    exit 0
+    )
+}
+
+apply_profile_recording() {
+    # High-quality recording profile:
+    #   - Flat response, no processing (ALC off, noise gate off, 3D off)
+    #   - Moderate mic gain (avoid clipping)
+    #   - Max dynamic range for post-processing flexibility
+    local CARD_NUM="$1"
+    (
+    set +e
+
+    apply_mixer_defaults "$CARD_NUM"
+
+    # Moderate mic gain — +20dB boost, avoid clipping
+    amixer -c "$CARD_NUM" cset name='Left Input Boost Mixer LINPUT1 Volume' 2 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" cset name='Right Input Boost Mixer RINPUT1 Volume' 2 >/dev/null 2>&1
+
+    # Moderate capture volume — leave headroom
+    amixer -c "$CARD_NUM" sset "Capture" 40 >/dev/null 2>&1
+    amixer -c "$CARD_NUM" cset name='ADC PCM Capture Volume' 195,195 >/dev/null 2>&1
+
+    # Disable all processing — flat, uncolored capture
+    amixer -c "$CARD_NUM" sset "ALC Function" "Off" >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "Noise Gate" off >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "3D" off >/dev/null 2>&1
+    amixer -c "$CARD_NUM" sset "ADC High Pass Filter" off >/dev/null 2>&1
+
+    exit 0
+    )
+}
+
+apply_profile() {
+    local CARD_NUM="$1"
+    local profile="$2"
+
+    case "$profile" in
+        voice)
+            apply_profile_voice "$CARD_NUM"
+            ;;
+        music)
+            apply_profile_music "$CARD_NUM"
+            ;;
+        headphones)
+            apply_profile_headphones "$CARD_NUM"
+            ;;
+        conferencing)
+            apply_profile_conferencing "$CARD_NUM"
+            ;;
+        recording)
+            apply_profile_recording "$CARD_NUM"
+            ;;
+        *)
+            log "ERROR: Unknown profile '$profile'"
+            log "Run '$(basename "$0") --list-profiles' to see available profiles"
+            return 1
+            ;;
+    esac
+}
+
 configure_mixer() {
     log "Configuring mixer settings..."
 
@@ -233,12 +476,28 @@ configure_mixer() {
     log_debug "RESET_DEFAULTS=$RESET_DEFAULTS"
     log_debug "State file check: $([ -f /var/lib/alsa/asound.state ] && echo 'exists' || echo 'missing')"
 
+    # Check for --profile flag (takes priority over other options)
+    if [ -n "$PROFILE" ]; then
+        log "Applying mixer profile: $PROFILE"
+        if apply_profile "$CARD_NUM" "$PROFILE"; then
+            if alsactl store "$CARD_NUM" >/dev/null 2>&1; then
+                log "Profile '$PROFILE' applied and saved!"
+            else
+                log "WARNING: Profile '$PROFILE' applied, but failed to save mixer state"
+            fi
+        else
+            log "ERROR: Failed to apply profile '$PROFILE'"
+            return 1
+        fi
     # Check for --reset-defaults flag
-    if [ "$RESET_DEFAULTS" = true ]; then
+    elif [ "$RESET_DEFAULTS" = true ]; then
         log "Resetting mixer to factory defaults (--reset-defaults)..."
         apply_mixer_defaults "$CARD_NUM"
-        alsactl store "$CARD_NUM" >/dev/null 2>&1 || true
-        log "Factory defaults applied and saved!"
+        if alsactl store "$CARD_NUM" >/dev/null 2>&1; then
+            log "Factory defaults applied and saved!"
+        else
+            log "WARNING: Factory defaults applied, but failed to save mixer state"
+        fi
     elif has_saved_state "$CARD_NUM"; then
         log "Restoring saved mixer state..."
         if alsactl restore "$CARD_NUM" >/dev/null 2>&1; then
@@ -246,15 +505,22 @@ configure_mixer() {
         else
             log "WARNING: Failed to restore saved state, applying defaults..."
             apply_mixer_defaults "$CARD_NUM"
-            alsactl store "$CARD_NUM" >/dev/null 2>&1 || true
+            if alsactl store "$CARD_NUM" >/dev/null 2>&1; then
+                log "Defaults saved!"
+            else
+                log "WARNING: Defaults applied, but failed to save mixer state"
+            fi
         fi
     else
         log "No saved state found — applying defaults..."
         apply_mixer_defaults "$CARD_NUM"
 
         # Save initial defaults so future boots know state exists
-        alsactl store "$CARD_NUM" >/dev/null 2>&1 || true
-        log "Mixer defaults applied and saved!"
+        if alsactl store "$CARD_NUM" >/dev/null 2>&1; then
+            log "Mixer defaults applied and saved!"
+        else
+            log "WARNING: Mixer defaults applied, but failed to save mixer state"
+        fi
     fi
 }
 

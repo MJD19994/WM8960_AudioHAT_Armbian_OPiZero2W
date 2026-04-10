@@ -16,6 +16,10 @@
  * 3. Adds AHUB0 platform device for external I2S
  * 4. Adds AHUB0 machine driver binding WM8960 codec
  * 5. Enables I2C1 with pinctrl (PI7/PI8) and adds WM8960 codec at address 0x1a
+ *
+ * Note: On Armbian kernel 6.13+, the CCU driver has a PLL_AUDIO regression
+ * that produces wrong clock rates. The WM8960 DKMS driver (wm8960.c) detects
+ * this at runtime and applies a fallback fix. No overlay changes needed.
  */
 
 / {

@@ -24,7 +24,7 @@ Complete audio support for WM8960-based audio HATs (including ReSpeaker 2-Mic HA
 - Other WM8960-based audio HATs on the Orange Pi Zero 2W
 
 **Supported OS:**
-- [Armbian Trixie (kernel 6.12.76-current-sunxi64)](https://www.armbian.com/orangepi-zero2w/)
+- [Armbian Trixie (kernel 6.12–6.18+, current-sunxi64)](https://www.armbian.com/orangepi-zero2w/)
 
 **Requirements:**
 - All prerequisites (I2C tools, device-tree-compiler, ALSA utils, DKMS, kernel headers, build tools) are installed automatically by the installer
@@ -43,7 +43,6 @@ sudo apt install -y git    # Armbian may not include git by default
 ```bash
 git clone https://github.com/MJD19994/WM8960_AudioHAT_Armbian_OPiZero2W
 cd WM8960_AudioHAT_Armbian_OPiZero2W
-chmod +x install.sh
 sudo ./install.sh
 sudo reboot
 ```
@@ -61,7 +60,6 @@ After reboot, run the interactive test script:
 ```bash
 # Full interactive test (diagnostics + playback + recording tests)
 cd WM8960_AudioHAT_Armbian_OPiZero2W
-sudo chmod +x scripts/test-audio.sh
 sudo ./scripts/test-audio.sh
 ```
 
@@ -112,6 +110,7 @@ This package provides:
    - Patched WM8960 codec driver built via DKMS against your running kernel
    - Automatically rebuilds on kernel upgrades
    - Includes PLL fixes for proper clock generation from onboard 24MHz crystal
+   - Automatic CCU PLL workaround for kernel 6.13+ (detects and corrects a PLL lock regression in the Allwinner clock driver)
 
 3. **Mixer Configuration Service** (`service/wm8960-mixer-config.sh`)
    - Runs at boot via systemd
@@ -257,6 +256,9 @@ sudo /usr/local/bin/wm8960-mixer-config.sh --verbose
 
 ### Common Issues
 
+**"H616 PLL_AUDIO not locked, applying fallback" in dmesg:**
+- This message is **expected** on Armbian kernel 6.13+ and means the automatic fix is working. The Allwinner CCU clock driver has a PLL regression that prevents the audio PLL from locking. The WM8960 DKMS driver detects this and applies known-good clock values as a fallback. You should see `H616 PLL_AUDIO locked after fallback` shortly after, confirming audio clocks are configured correctly.
+
 **No audio output:**
 1. Check service status: `systemctl status wm8960-audio.service`
 2. Check dmesg: `dmesg | grep wm8960`
@@ -303,4 +305,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Status**: Working on Orange Pi Zero 2W (H618) with Armbian Trixie (kernel 6.12.76)
+**Status**: Working on Orange Pi Zero 2W (H618) with Armbian Trixie (kernel 6.12–6.18+)
