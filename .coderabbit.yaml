@@ -1,0 +1,38 @@
+language: en-US
+reviews:
+  profile: assertive
+  high_level_summary: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+      - testing
+  path_instructions:
+    - path: "**/*.c"
+      instructions: >
+        This is a Linux kernel module (WM8960 codec driver). Review for kernel
+        coding style, memory safety, proper error handling, and I2C/ALSA/ASoC
+        API correctness.
+    - path: "**/*.sh"
+      instructions: >
+        These are install/uninstall scripts for an embedded Linux SBC (Orange Pi
+        Zero 2W). Review for POSIX compliance, proper quoting, error handling,
+        and safe use of sudo/root operations.
+    - path: "dkms/**"
+      instructions: >
+        DKMS kernel module for WM8960 codec. Review for patch correctness and
+        compatibility across kernel versions 6.1 through 6.18+.
+  tools:
+    shellcheck:
+      enabled: true
+    cppcheck:
+      enabled: true
+    checkmake:
+      enabled: true
+    yamllint:
+      enabled: true
+    actionlint:
+      enabled: true
+    gitleaks:
+      enabled: true

@@ -1,3 +1,5 @@
 *.dtbo
 CLAUDE.md
 ROADMAP.md
+AGENTS.md
+.claude/
