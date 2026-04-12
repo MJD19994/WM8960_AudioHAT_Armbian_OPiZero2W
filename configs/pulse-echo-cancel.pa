@@ -17,9 +17,14 @@
 ### NOTE: The source_master and sink_master values below assume the default
 ### PulseAudio ALSA device names for the AHUB WM8960 card. If your names
 ### differ, run:
-###   pacmd list-sources | grep name:
-###   pacmd list-sinks | grep name:
+###   pactl list sources | grep -E '^\s*Name:'
+###   pactl list sinks | grep -E '^\s*Name:'
 ### and update the values accordingly.
+###
+### The set-default lines at the bottom make echo cancellation apply to ALL
+### audio. Comment them out if you only want specific apps (e.g., voice
+### assistants) to use it — they can explicitly select echo_cancelled_input
+### and echo_cancelled_output instead.
 
 .ifexists module-echo-cancel.so
 load-module module-echo-cancel \

@@ -2,15 +2,15 @@
 
 #define _GNU_SOURCE
 
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include <string.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <error.h>
 #include <sys/stat.h>
 
 #include <alsa/asoundlib.h>
@@ -41,7 +41,7 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
     else if (err == -ESTRPIPE)
     {
         while ((err = snd_pcm_resume(handle)) == -EAGAIN)
-            sleep(0.01); /* wait until the suspend flag is released */
+            usleep(10000); /* wait 10ms until the suspend flag is released */
         if (err < 0)
         {
             err = snd_pcm_prepare(handle);
@@ -52,11 +52,12 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
     return err;
 }
 
-int set_params(snd_pcm_t *handle, snd_pcm_hw_params_t *hw_params, unsigned rate, unsigned channels, unsigned chunk_size)
+int set_params(snd_pcm_t *handle, unsigned rate, unsigned channels, unsigned chunk_size)
 {
     int err;
     int mmap = 0;
     unsigned actual_rate = rate;
+    snd_pcm_hw_params_t *hw_params;
 
     err = snd_pcm_hw_params_malloc(&hw_params);
     if (err < 0) {
@@ -120,19 +121,12 @@ int set_params(snd_pcm_t *handle, snd_pcm_hw_params_t *hw_params, unsigned rate,
         exit(1);
     }
 
-    // {
-    //     snd_output_t *out;
-    //     snd_output_stdio_attach(&out, stderr, 0);
-    //     snd_pcm_hw_params_dump(hw_params, out);
-    //     snd_output_close(out);
-    // }
-
+    snd_pcm_hw_params_free(hw_params);
     return mmap;
 }
 
 void *playback(void *ptr)
 {
-    snd_pcm_hw_params_t *hw_params = NULL;
     int err;
     unsigned chunk_bytes;
     unsigned frame_bytes;
@@ -151,7 +145,7 @@ void *playback(void *ptr)
         exit(1);
     }
 
-    mmap = set_params(handle, hw_params, conf->rate, conf->ref_channels, chunk_size);
+    mmap = set_params(handle, conf->rate, conf->ref_channels, chunk_size);
 
     frame_bytes = conf->ref_channels * 2;
     chunk_bytes = chunk_size * frame_bytes;
@@ -166,18 +160,27 @@ void *playback(void *ptr)
 
     if (stat(conf->playback_fifo, &st) != 0)
     {
-        mkfifo(conf->playback_fifo, 0666);
+        if (mkfifo(conf->playback_fifo, 0666) != 0) {
+            fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->playback_fifo, strerror(errno));
+            exit(1);
+        }
     }
     else if (!S_ISFIFO(st.st_mode))
     {
-        remove(conf->playback_fifo);
-        mkfifo(conf->playback_fifo, 0666);
+        if (remove(conf->playback_fifo) != 0) {
+            fprintf(stderr, "Failed to remove existing %s: %s\n", conf->playback_fifo, strerror(errno));
+            exit(1);
+        }
+        if (mkfifo(conf->playback_fifo, 0666) != 0) {
+            fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->playback_fifo, strerror(errno));
+            exit(1);
+        }
     }
 
     int fd = open(conf->playback_fifo, O_RDONLY | O_NONBLOCK);
     if (fd < 0)
     {
-        fprintf(stderr, "failed to open %s, error %d\n", conf->playback_fifo, fd);
+        fprintf(stderr, "failed to open %s: %s\n", conf->playback_fifo, strerror(errno));
         exit(1);
     }
     long pipe_size = (long)fcntl(fd, F_GETPIPE_SZ);
@@ -221,7 +224,7 @@ void *playback(void *ptr)
                 count += result;
             }
 
-            if (count >= chunk_bytes)
+            if (count >= (int)chunk_bytes)
             {
                 break;
             }
@@ -229,7 +232,7 @@ void *playback(void *ptr)
             usleep(wait_us);
         }
 
-        if (count < chunk_bytes)
+        if (count < (int)chunk_bytes)
         {
             memset(chunk + count, 0, chunk_bytes - count);
 
@@ -244,9 +247,9 @@ void *playback(void *ptr)
             // bypass AEC when no playback
             if (zero_count > (conf->filter_length + conf->buffer_size))
             {
-                if (!conf->bypass)
+                if (!atomic_load(&conf->bypass))
                 {
-                    conf->bypass = 1;
+                    atomic_store(&conf->bypass, 1);
                     printf("No playback, bypass AEC\n");
                 }
             }
@@ -257,9 +260,9 @@ void *playback(void *ptr)
         }
         else
         {
-            if (conf->bypass)
+            if (atomic_load(&conf->bypass))
             {
-                conf->bypass = 0;
+                atomic_store(&conf->bypass, 0);
                 zero_count = 0;
                 printf("Enable AEC\n");
             }
@@ -279,14 +282,14 @@ void *playback(void *ptr)
                 r = snd_pcm_writei(handle, data, count);
             }
 
-            if (r == -EAGAIN || (r >= 0 && (size_t)r < count))
+            if (r == -EAGAIN || (r >= 0 && (size_t)r < (size_t)count))
             {
-                fprintf(stderr, "w playback read error: %s\n", snd_strerror(r));
+                /* Short write or EAGAIN - wait and retry */
                 snd_pcm_wait(handle, 100);
             }
             else if (r < 0)
             {
-                fprintf(stderr, "playback read error: %s\n", snd_strerror(r));
+                fprintf(stderr, "playback write error: %s\n", snd_strerror(r));
                 if (xrun_recovery(handle, r) < 0)
                 {
                     exit(1);
@@ -309,7 +312,6 @@ void *playback(void *ptr)
 
 void *capture(void *ptr)
 {
-    snd_pcm_hw_params_t *hw_params = NULL;
     int err;
     unsigned frame_bytes;
     void *chunk = NULL;
@@ -326,7 +328,7 @@ void *capture(void *ptr)
         exit(1);
     }
 
-    mmap = set_params(handle, hw_params, conf->rate, conf->rec_channels, chunk_size * 2);
+    mmap = set_params(handle, conf->rate, conf->rec_channels, chunk_size * 2);
 
     frame_bytes = conf->rec_channels * 2;
     chunk = malloc(chunk_size * frame_bytes);
@@ -349,12 +351,12 @@ void *capture(void *ptr)
         }
         if (r == -EAGAIN || (r >= 0 && (size_t)r < chunk_size))
         {
-            fprintf(stderr, "1 read error: %s\n", snd_strerror(r));
+            /* Short read or EAGAIN - wait for more data */
             snd_pcm_wait(handle, 100);
         }
         else if (r < 0)
         {
-            fprintf(stderr, "read error: %s\n", snd_strerror(r));
+            fprintf(stderr, "capture read error: %s\n", snd_strerror(r));
             if (xrun_recovery(handle, r) < 0)
             {
                 exit(1);
@@ -397,7 +399,12 @@ int capture_start(conf_t *conf)
         exit(1);
     }
 
-    pthread_create(&g_capture_thread, NULL, capture, conf);
+    int err = pthread_create(&g_capture_thread, NULL, capture, conf);
+    if (err != 0) {
+        fprintf(stderr, "Failed to create capture thread: %s\n", strerror(err));
+        free(buf);
+        return -1;
+    }
 
     return 0;
 }
@@ -421,7 +428,12 @@ int playback_start(conf_t *conf)
         exit(1);
     }
 
-    pthread_create(&g_playback_thread, NULL, playback, conf);
+    int err = pthread_create(&g_playback_thread, NULL, playback, conf);
+    if (err != 0) {
+        fprintf(stderr, "Failed to create playback thread: %s\n", strerror(err));
+        free(buf);
+        return -1;
+    }
 
     return 0;
 }
@@ -448,27 +460,31 @@ int playback_stop()
 
 int capture_read(void *buf, size_t frames, int timeout_ms)
 {
-    while (PaUtil_GetRingBufferReadAvailable(&g_capture_ringbuffer) < frames && timeout_ms > 0)
+    while (PaUtil_GetRingBufferReadAvailable(&g_capture_ringbuffer) < (ring_buffer_size_t)frames && timeout_ms > 0)
     {
-        usleep(10);
-        timeout_ms--;
+        usleep(1000);  /* sleep 1ms */
+        timeout_ms--;  /* decrement by 1ms */
     }
 
     return PaUtil_ReadRingBuffer(&g_capture_ringbuffer, buf, frames);
 }
 
-int capture_skip(size_t frames)
+int capture_skip(size_t frames, int timeout_ms)
 {
-    while (PaUtil_GetRingBufferReadAvailable(&g_capture_ringbuffer) < frames)
+    while (PaUtil_GetRingBufferReadAvailable(&g_capture_ringbuffer) < (ring_buffer_size_t)frames && timeout_ms > 0)
     {
         usleep(1000);
+        timeout_ms--;
+    }
+    if (PaUtil_GetRingBufferReadAvailable(&g_capture_ringbuffer) < (ring_buffer_size_t)frames) {
+        return -1;  /* timeout */
     }
     return PaUtil_AdvanceRingBufferReadIndex(&g_capture_ringbuffer, frames);
 }
 
 int playback_read(void *buf, size_t frames, int timeout_ms)
 {
-    while (PaUtil_GetRingBufferReadAvailable(&g_playback_ringbuffer) < frames && timeout_ms > 0)
+    while (PaUtil_GetRingBufferReadAvailable(&g_playback_ringbuffer) < (ring_buffer_size_t)frames && timeout_ms > 0)
     {
         usleep(1000);
         timeout_ms--;

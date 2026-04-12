@@ -40,6 +40,9 @@
  * license above.
  */
 
+#ifndef PA_MEMORYBARRIER_H
+#define PA_MEMORYBARRIER_H
+
 /**
  @file pa_memorybarrier.h
  @ingroup common_src
@@ -126,3 +129,5 @@
 #      error Memory barriers are not defined on this system. You can still compile by defining ALLOW_SMP_DANGERS, but SMP safety will not be guaranteed.
 #   endif
 #endif
+
+#endif /* PA_MEMORYBARRIER_H */

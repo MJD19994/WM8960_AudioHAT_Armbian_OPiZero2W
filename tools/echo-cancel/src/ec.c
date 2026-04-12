@@ -1,9 +1,9 @@
 // ec - echo canceller
 
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -35,14 +35,17 @@ const char *usage =
     "  `cat /tmp/ec.output > out.raw` to get recording audio\n"
     " Only support mono playback\n";
 
-volatile int g_is_quit = 0;
+volatile sig_atomic_t g_is_quit = 0;
 
 extern int fifo_setup(conf_t *conf);
+extern void fifo_cleanup(void);
 extern int fifo_write(void *buf, size_t frames);
 
 void int_handler(int signal)
 {
-    printf("Caught signal %d, quit...\n", signal);
+    (void)signal;
+    const char msg[] = "Caught signal, quit...\n";
+    write(STDOUT_FILENO, msg, sizeof(msg) - 1);
 
     g_is_quit = 1;
 }
@@ -122,6 +125,24 @@ int main(int argc, char *argv[])
         }
     }
 
+    /* Validate critical parameters */
+    if (config.rate == 0 || config.rate > 192000) {
+        fprintf(stderr, "Invalid sample rate: %u\n", config.rate);
+        exit(1);
+    }
+    if (config.rec_channels == 0 || config.rec_channels > 32) {
+        fprintf(stderr, "Invalid channel count: %u\n", config.rec_channels);
+        exit(1);
+    }
+    if (config.buffer_size == 0) {
+        fprintf(stderr, "Invalid buffer size: %u\n", config.buffer_size);
+        exit(1);
+    }
+    if (config.filter_length == 0) {
+        fprintf(stderr, "Invalid filter length: %u\n", config.filter_length);
+        exit(1);
+    }
+
     if (daemonize)
     {
         pid_t pid, sid;
@@ -141,7 +162,7 @@ int main(int argc, char *argv[])
         }
 
         /* Change the file mode mask */
-        umask(0);
+        umask(022);  /* Restrict write access for group/others */
 
         /* Open any logs here */
 
@@ -172,6 +193,9 @@ int main(int argc, char *argv[])
         if (fp_far == NULL || fp_rec == NULL || fp_out == NULL)
         {
             printf("Fail to open file(s)\n");
+            if (fp_far) fclose(fp_far);
+            if (fp_rec) fclose(fp_rec);
+            if (fp_out) fclose(fp_out);
             exit(1);
         }
     }
@@ -197,25 +221,39 @@ int main(int argc, char *argv[])
                                           config.filter_length,
                                           config.rec_channels,
                                           config.ref_channels);
+    if (echo_state == NULL) {
+        fprintf(stderr, "Failed to initialize Speex echo canceller\n");
+        exit(1);
+    }
     speex_echo_ctl(echo_state, SPEEX_ECHO_SET_SAMPLING_RATE, &(config.rate));
 
-    playback_start(&config);
-    capture_start(&config);
-    fifo_setup(&config);
+    if (playback_start(&config) < 0) {
+        fprintf(stderr, "Failed to start playback\n");
+        exit(1);
+    }
+    if (capture_start(&config) < 0) {
+        fprintf(stderr, "Failed to start capture\n");
+        exit(1);
+    }
+    if (fifo_setup(&config) < 0) {
+        fprintf(stderr, "Failed to setup FIFO\n");
+        exit(1);
+    }
 
     printf("Running... Press Ctrl+C to exit\n");
 
     int timeout = 200 * 1000 * frame_size / config.rate;    // ms
 
     // system delay between recording and playback
-    printf("skip frames %d\n", capture_skip(delay));
+    int skipped = capture_skip(delay, timeout);
+    printf("skip frames %d\n", skipped);
 
     while (!g_is_quit)
     {
         capture_read(rec, frame_size, timeout);
         playback_read(far, frame_size, timeout);
 
-        if (!config.bypass)
+        if (!atomic_load(&config.bypass))
         {
             speex_echo_cancellation(echo_state, rec, far, out);
         }
@@ -245,10 +283,11 @@ int main(int argc, char *argv[])
     free(far);
     free(out);
 
+    speex_echo_state_destroy(echo_state);
+
     capture_stop();
     playback_stop();
-
-    exit(0);
+    fifo_cleanup();
 
     return 0;
 }

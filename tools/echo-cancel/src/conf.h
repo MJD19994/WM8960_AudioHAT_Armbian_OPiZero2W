@@ -1,12 +1,14 @@
 
-#ifndef _CONF_H_
-#define _CONF_H_
+#ifndef ECHO_CANCEL_CONF_H
+#define ECHO_CANCEL_CONF_H
 
-typedef struct _conf_t {
-    char *rec_pcm;          // recording PCM
-    char *out_pcm;          // output PCM
-    char *playback_fifo;    // playback FIFO
-    char *out_fifo;         // AEC output FIFO
+#include <stdatomic.h>
+
+typedef struct conf_t {
+    const char *rec_pcm;          // recording PCM
+    const char *out_pcm;          // output PCM
+    const char *playback_fifo;    // playback FIFO
+    const char *out_fifo;         // AEC output FIFO
     unsigned rate;
     unsigned rec_channels;  // recording channels
     unsigned ref_channels;  // reference (playback) channels
@@ -15,7 +17,7 @@ typedef struct _conf_t {
     unsigned buffer_size;
     unsigned playback_fifo_size;
     unsigned filter_length;
-    unsigned bypass;
+    atomic_int bypass;      // thread-safe AEC bypass flag
 } conf_t;
 
-#endif // _CONF_H_
+#endif // ECHO_CANCEL_CONF_H

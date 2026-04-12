@@ -91,7 +91,7 @@ pactl list sinks short | grep echo_cancelled
 
 **Configure your voice assistant** to use `echo_cancelled_input` as the microphone source and `echo_cancelled_output` as the audio sink.
 
-**Device names:** The config assumes PulseAudio names the WM8960 devices as `alsa_input.platform-soc_ahub0_mach.stereo-fallback` and `alsa_output.platform-soc_ahub0_mach.stereo-fallback`. If your names differ, check with `pacmd list-sources | grep name:` and update the `source_master`/`sink_master` values.
+**Device names:** The config assumes PulseAudio names the WM8960 devices as `alsa_input.platform-soc_ahub0_mach.stereo-fallback` and `alsa_output.platform-soc_ahub0_mach.stereo-fallback`. If your names differ, check with `pactl list sources short` and `pactl list sinks short`, then update the `source_master`/`sink_master` values.
 
 ### Bare ALSA Echo Cancellation
 

@@ -3,7 +3,8 @@
 # Armbian Installation Script for Orange Pi Zero 2W (H618)
 #
 # This script installs and configures the WM8960 audio codec support
-# including device tree patching, PLL configuration service, and ALSA settings.
+# including DKMS module build, device tree patching, the boot-time mixer
+# configuration service, and ALSA/PulseAudio/PipeWire settings.
 #
 
 set -e

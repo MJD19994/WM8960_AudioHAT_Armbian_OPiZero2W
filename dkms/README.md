@@ -21,7 +21,7 @@ Five changes vs mainline `sound/soc/codecs/wm8960.c` (kernel.org):
 | 4 | `wm8960_i2c_probe()` | Set `clk_id = WM8960_SYSCLK_PLL` and `freq_in = 24000000` at probe | Ensures PLL mode is active from boot, even if `set_dai_sysclk` is never called |
 | 5 | DAPM routes | Add `MICB` supply routes to Boost Mixers | Ensures mic bias voltage powers on automatically during capture |
 
-Patches 1-4 fix the "slave mode, but proceeding with no clock configuration" issue that causes only 48kHz to work correctly. With these patches, all sample rates (8kHz-48kHz) work directly on `hw:N,0` and rate switching no longer corrupts codec state.
+Patches 1-4 fix the "slave mode, but proceeding with no clock configuration" issue and make the codec generate correct internal clocks for any requested rate. The codec itself supports 8kHz-48kHz, but on the Allwinner AHUB platform the I2S bus is configured for a fixed rate per session — applications should use the `default` ALSA device (or `plughw`) so dmix/dsnoop handles rate conversion. See [Sample Rates](../README.md#sample-rates) in the main README for usage details.
 
 Patch 5 is from Waveshare/Seeed's driver forks and improves microphone reliability.
 

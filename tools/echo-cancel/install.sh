@@ -7,7 +7,7 @@
 #
 # Usage: sudo ./install.sh [--uninstall]
 
-set -e
+set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVICE_NAME="wm8960-echo-cancel"
@@ -26,7 +26,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # --- Uninstall ---
-if [ "${1}" = "--uninstall" ]; then
+if [ "${1:-}" = "--uninstall" ]; then
     log "Uninstalling echo canceller..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
@@ -79,10 +79,12 @@ systemctl start "${SERVICE_NAME}"
 log "Echo canceller installed and running!"
 log ""
 log "Usage:"
-log "  Record echo-cancelled audio:"
-log "    arecord -D wm8960_ec -r 16000 -c 2 -f S16_LE -d 5 recording.wav"
+log "  Record 5s of echo-cancelled audio (raw S16_LE 48kHz mono):"
+log "    timeout 5 dd if=/tmp/ec.output of=recording.raw bs=96000"
+log "    # Convert to WAV:"
+log "    sox -t raw -r 48000 -c 1 -b 16 -e signed recording.raw recording.wav"
 log ""
-log "  Play audio through the echo canceller:"
+log "  Play audio through the echo canceller (must be raw 48kHz mono S16_LE):"
 log "    cat audio.raw > /tmp/ec.input"
 log ""
 log "  Check status:"

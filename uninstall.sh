@@ -79,18 +79,17 @@ rm -f /usr/local/bin/wm8960-mixer-config.sh
 rm -f /usr/local/bin/wm8960-pll-config.sh  # legacy name from previous installs
 systemctl daemon-reload
 
-# Remove ALSA config (backup first)
+# Remove ALSA config and restore the user's pre-install asound.conf if we
+# backed one up during install. The backup file (.wm8960-backup) is created
+# by install.sh on first install when /etc/asound.conf already exists.
 if [ -f /etc/asound.conf ]; then
-    # Preserve existing backup if it exists
     if [ -f /etc/asound.conf.wm8960-backup ]; then
-        TIMESTAMP=$(date +%s)
-        log_info "Existing backup found, preserving as /etc/asound.conf.wm8960-backup.${TIMESTAMP}"
-        mv /etc/asound.conf.wm8960-backup "/etc/asound.conf.wm8960-backup.${TIMESTAMP}"
+        log_info "Restoring original /etc/asound.conf from backup"
+        mv /etc/asound.conf.wm8960-backup /etc/asound.conf
+    else
+        log_info "Removing /etc/asound.conf (no pre-install backup found)"
+        rm -f /etc/asound.conf
     fi
-
-    log_info "Backing up /etc/asound.conf to /etc/asound.conf.wm8960-backup"
-    cp /etc/asound.conf /etc/asound.conf.wm8960-backup
-    rm -f /etc/asound.conf
 else
     log_debug "/etc/asound.conf not found — nothing to remove"
 fi
@@ -133,15 +132,21 @@ if command -v dkms &>/dev/null && dkms status wm8960-audio-hat/1.0 2>/dev/null |
     log_debug "DKMS module and source removed"
 fi
 
-# Remove WM8960 module if it was built from source (legacy, pre-DKMS)
+# Remove WM8960 module if it was built from source (legacy, pre-DKMS).
+# Skip removal if the file is owned by a dpkg package — that means a future
+# Armbian kernel ships the module itself and we must not delete distro files.
 log_debug "Checking for built-from-source WM8960 module"
 WM8960_MODULE_BASE="/lib/modules/$(uname -r)/kernel/sound/soc/codecs/snd-soc-wm8960"
 for ext in .ko .ko.xz .ko.zst; do
     if [ -f "${WM8960_MODULE_BASE}${ext}" ]; then
-        log_info "Removing WM8960 kernel module (built from source)..."
-        log_debug "Removing ${WM8960_MODULE_BASE}${ext}"
-        rm -f "${WM8960_MODULE_BASE}${ext}"
-        depmod -a
+        if command -v dpkg &>/dev/null && dpkg -S "${WM8960_MODULE_BASE}${ext}" &>/dev/null; then
+            log_debug "Skipping ${WM8960_MODULE_BASE}${ext} — owned by a dpkg package"
+        else
+            log_info "Removing WM8960 kernel module (built from source)..."
+            log_debug "Removing ${WM8960_MODULE_BASE}${ext}"
+            rm -f "${WM8960_MODULE_BASE}${ext}"
+            depmod -a
+        fi
         break
     fi
 done

@@ -1,6 +1,6 @@
-#ifndef _UTIL_H_
-#define _UTIL_H_
+#ifndef ECHO_CANCEL_UTIL_H
+#define ECHO_CANCEL_UTIL_H
 
 unsigned power2(unsigned v);
 
-#endif // _UTIL_H_
+#endif // ECHO_CANCEL_UTIL_H

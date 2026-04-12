@@ -40,19 +40,28 @@ This will:
 
 ### Record echo-cancelled audio
 
+The output pipe `/tmp/ec.output` delivers raw S16_LE PCM at 48kHz mono. Use `sox` or `ffmpeg` to convert it to WAV (or any other format):
+
 ```bash
-# Record 5 seconds of echo-cancelled audio at 16kHz
-cat /tmp/ec.output | arecord -r 16000 -c 2 -f S16_LE -t wav -d 5 recording.wav
+# Using sox — reads raw PCM from the pipe and writes WAV
+timeout 5 sox -t raw -r 48000 -c 1 -b 16 -e signed /tmp/ec.output -t wav recording.wav
+
+# Or using ffmpeg
+timeout 5 ffmpeg -f s16le -ar 48000 -ac 1 -i /tmp/ec.output -t 5 recording.wav
+
+# Or just dump raw and convert later
+dd if=/tmp/ec.output of=recording.raw bs=96000 count=5
+sox -t raw -r 48000 -c 1 -b 16 -e signed recording.raw recording.wav
 ```
 
 ### Play audio through the echo canceller
 
 ```bash
-# Play a WAV file (must be 16kHz, mono, S16_LE raw PCM)
-sox input.wav -r 16000 -c 1 -b 16 -e signed -t raw - > /tmp/ec.input
+# Play a WAV file (must be converted to raw 48kHz mono S16_LE PCM first)
+sox input.wav -r 48000 -c 1 -b 16 -e signed -t raw - > /tmp/ec.input
 
 # Or use ffmpeg
-ffmpeg -i input.wav -ar 16000 -ac 1 -f s16le - > /tmp/ec.input
+ffmpeg -i input.wav -ar 48000 -ac 1 -f s16le - > /tmp/ec.input
 ```
 
 ### Voice assistant integration
@@ -109,4 +118,4 @@ sudo ./install.sh --uninstall
 
 GPLv3 — see [LICENSE-GPL3](LICENSE-GPL3). Based on [voice-engine/ec](https://github.com/voice-engine/ec).
 
-The PortAudio ring buffer (`pa_ringbuffer.c`, `pa_ringbuffer.h`) is licensed under a BSD-style license — see the file headers for details.
+The PortAudio ring buffer (`pa_ringbuffer.c`, `pa_ringbuffer.h`, `pa_memorybarrier.h`) is vendored from [PortAudio](http://www.portaudio.com) under a BSD-style license — see the file headers for details. These files are kept unmodified to preserve upstream compatibility.
