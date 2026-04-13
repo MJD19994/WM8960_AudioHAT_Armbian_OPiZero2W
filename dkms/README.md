@@ -11,7 +11,7 @@ The mainline `snd-soc-wm8960` kernel module has bugs that affect boards like the
 
 ## Patches Applied
 
-Five changes vs mainline `sound/soc/codecs/wm8960.c` (kernel.org):
+Changes vs mainline `sound/soc/codecs/wm8960.c` (kernel.org):
 
 | # | Location | Change | Why |
 |---|----------|--------|-----|
@@ -24,6 +24,15 @@ Five changes vs mainline `sound/soc/codecs/wm8960.c` (kernel.org):
 Patches 1-4 fix the "slave mode, but proceeding with no clock configuration" issue and make the codec generate correct internal clocks for any requested rate. The codec itself supports 8kHz-48kHz, but on the Allwinner AHUB platform the I2S bus is configured for a fixed rate per session — applications should use the `default` ALSA device (or `plughw`) so dmix/dsnoop handles rate conversion. See [Sample Rates](../README.md#sample-rates) in the main README for usage details.
 
 Patch 5 is from Waveshare/Seeed's driver forks and improves microphone reliability.
+
+### Additional Compatibility
+
+| Feature | Details |
+|---------|---------|
+| DAIFMT compat | `#ifndef` defines for kernel 6.18+ master/slave → provider/consumer rename |
+| CCU PLL workaround | `wm8960_check_soc_pll()` detects and fixes Allwinner CCU PLL lock regression on kernel 6.13+ |
+| H616/H618 SoC guard | `of_machine_is_compatible()` check ensures PLL workaround only runs on Allwinner H616/H618 |
+| Rate-aware fallback | PLL values for both 48kHz family (98.304 MHz) and 44.1kHz family (90.317 MHz) |
 
 ## Files
 

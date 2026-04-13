@@ -119,6 +119,10 @@ void fifo_cleanup(void)
         pthread_join(g_writer_thread, NULL);
         g_thread_created = 0;
     }
+    if (g_out_ringbuffer.buffer) {
+        free(g_out_ringbuffer.buffer);
+        g_out_ringbuffer.buffer = NULL;
+    }
 }
 
 int fifo_write(void *buf, size_t frames)

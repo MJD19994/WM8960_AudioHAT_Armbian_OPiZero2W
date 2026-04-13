@@ -85,7 +85,7 @@ check_prerequisites() {
                 for p in "${missing_pkgs[@]}"; do
                     [ "$p" = "$pkg" ] && already=true
                 done
-                $already || missing_pkgs+=("$pkg")
+                [ "$already" = true ] || missing_pkgs+=("$pkg")
             else
                 log_error "Required command '$cmd' not found and no package mapping available"
                 exit 1

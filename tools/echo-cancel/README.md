@@ -1,121 +1,108 @@
-# WM8960 Echo Canceller (Bare ALSA) — Experimental
+# WM8960 Echo Canceller (Bare ALSA)
 
-Standalone acoustic echo cancellation for the WM8960 Audio HAT, using SpeexDSP. Works directly with ALSA — no PipeWire or PulseAudio required.
+Acoustic echo cancellation for the WM8960 Audio HAT without PipeWire or PulseAudio. Two engines available:
 
-Based on [voice-engine/ec](https://github.com/voice-engine/ec) (GPLv3), maintained as part of the WM8960 Audio HAT project.
+| Engine | Attenuation | Double-talk | Requirements | Best for |
+|--------|-------------|-------------|-------------|----------|
+| **WebRTC AEC3** (default) | ~30dB+ | Excellent | snd-aloop module | Voice assistants, conferencing |
+| **SpeexDSP** | ~15dB | Fair | None | Wake-word detection, simple setups |
 
-> **Note:** This provides ~15dB of echo attenuation — enough to help with wake-word detection but not full echo removal. For better results (~40dB), use the PipeWire or PulseAudio WebRTC AEC configs in [`configs/`](../../configs/README.md#echo-cancellation-setup).
-
-## When to Use This
-
-Use this if you're running **bare ALSA** (no PipeWire or PulseAudio) and need basic echo reduction — e.g., classic Rhasspy wake-word detection, or as a starting point for custom voice pipelines.
-
-If you have PipeWire or PulseAudio, use the WebRTC AEC configs instead — they provide significantly better echo cancellation with no background daemon.
-
-## How It Works
-
-The echo canceller runs as a background daemon that:
-
-1. **Captures** audio from the WM8960 microphone
-2. **Plays** audio from a named pipe (`/tmp/ec.input`) to the WM8960 speaker
-3. **Subtracts** the played audio from the captured signal using SpeexDSP AEC
-4. **Outputs** echo-cancelled audio to a named pipe (`/tmp/ec.output`)
-
-Applications read from `/tmp/ec.output` for echo-free microphone audio, and write to `/tmp/ec.input` for playback.
+For PipeWire or PulseAudio users, use the WebRTC AEC configs in [`configs/`](../../configs/README.md#echo-cancellation-setup) instead.
 
 ## Install
 
 ```bash
 cd tools/echo-cancel
+
+# WebRTC AEC3 (recommended — best quality)
 sudo ./install.sh
+
+# Or SpeexDSP (simpler, no snd-aloop needed)
+sudo ./install.sh speex
 ```
 
-This will:
-- Install build dependencies (`libasound2-dev`, `libspeexdsp-dev`, `build-essential`)
-- Build the `wm8960-ec` binary from source
-- Install it to `/usr/local/bin/wm8960-ec`
-- Create and start a systemd service (`wm8960-echo-cancel`)
+The installer handles all dependencies, builds from source, installs the binary, and creates a systemd service.
+
+## How It Works
+
+### WebRTC AEC3 (default)
+
+The EC binary acts as the audio router between applications and hardware:
+
+```
+App plays to hw:Loopback,0,0
+  → (snd-aloop) → EC reads from hw:Loopback,1,0
+  → EC feeds reference to WebRTC AEC3
+  → EC writes to WM8960 speaker
+  → EC reads from WM8960 mic (dsnoop)
+  → WebRTC AEC3 removes echo
+  → EC writes to hw:Loopback,0,1
+  → (snd-aloop) → App records from hw:Loopback,1,1 (clean audio)
+```
+
+No FIFOs in the audio path. Single-threaded loop ensures the reference signal is perfectly aligned with the microphone capture.
+
+### SpeexDSP (legacy)
+
+Based on [voice-engine/ec](https://github.com/voice-engine/ec). Uses named pipes (`/tmp/ec.input`, `/tmp/ec.output`) for audio I/O with SpeexDSP for echo cancellation.
 
 ## Usage
 
-### Record echo-cancelled audio
-
-The output pipe `/tmp/ec.output` delivers raw S16_LE PCM at 48kHz mono. Use `sox` or `ffmpeg` to convert it to WAV (or any other format):
+### WebRTC
 
 ```bash
-# Using sox — reads raw PCM from the pipe and writes WAV
+# Play audio through the echo canceller
+aplay -D hw:Loopback,0,0 music.wav
+
+# Record echo-cancelled audio
+arecord -D hw:Loopback,1,1 -r 48000 -c 1 -f S16_LE -d 5 recording.wav
+```
+
+### SpeexDSP
+
+```bash
+# Record echo-cancelled audio
 timeout 5 sox -t raw -r 48000 -c 1 -b 16 -e signed /tmp/ec.output -t wav recording.wav
 
-# Or using ffmpeg
-timeout 5 ffmpeg -f s16le -ar 48000 -ac 1 -i /tmp/ec.output -t 5 recording.wav
-
-# Or just dump raw and convert later
-dd if=/tmp/ec.output of=recording.raw bs=96000 count=5
-sox -t raw -r 48000 -c 1 -b 16 -e signed recording.raw recording.wav
-```
-
-### Play audio through the echo canceller
-
-```bash
-# Play a WAV file (must be converted to raw 48kHz mono S16_LE PCM first)
+# Play audio through the echo canceller (raw 48kHz mono S16_LE)
 sox input.wav -r 48000 -c 1 -b 16 -e signed -t raw - > /tmp/ec.input
-
-# Or use ffmpeg
-ffmpeg -i input.wav -ar 48000 -ac 1 -f s16le - > /tmp/ec.input
 ```
 
-### Voice assistant integration
+### WebRTC Tuning Flags
 
-Configure your voice assistant to use the named pipes:
-- **Microphone input:** `/tmp/ec.output` (echo-cancelled)
-- **Speaker output:** `/tmp/ec.input` (routed through AEC)
+```
+-n level  Noise suppression: 0=off 1=low 2=mod 3=high 4=vhigh (default: 1)
+-g        Enable automatic gain control
+-M        Mobile mode (AECM — lighter CPU, less cancellation)
+-H        Disable high-pass filter
+-d ms     Stream delay hint in ms (default: 0)
+-r rate   Sample rate: 16000, 32000, or 48000 (default: 48000)
+```
 
-### Service management
+### Service Management
 
 ```bash
-# Check status
 systemctl status wm8960-echo-cancel
-
-# View logs
+systemctl restart wm8960-echo-cancel
 journalctl -u wm8960-echo-cancel -f
-
-# Restart
-sudo systemctl restart wm8960-echo-cancel
-
-# Stop
-sudo systemctl stop wm8960-echo-cancel
 ```
-
-## Tuning
-
-### Delay compensation (`-d` flag)
-
-The `-d` parameter (in milliseconds) compensates for the time between when audio is sent to the speaker and when it arrives at the microphone. Default is 200ms for the ReSpeaker 2-Mic HAT.
-
-If echo cancellation seems weak:
-- **Too much residual echo:** increase the delay value
-- **Audio sounds choppy or cuts out:** decrease the delay value
-
-### Filter length (`-f` flag)
-
-The `-f` parameter controls the AEC filter length in samples. Default is 4096 (256ms at 16kHz). Longer filters handle more reverberant rooms but use more CPU. Range: 1024–8192.
 
 ## Limitations
 
-- **~15dB echo attenuation** — reduces echo enough to help wake-word engines, but the played audio is still audible in recordings. For near-complete echo removal, use PipeWire or PulseAudio WebRTC AEC (~40dB).
-- **Mono capture and playback** — the echo canceller operates in mono for both directions.
-- **48kHz sample rate** — matches the WM8960 hardware rate. Runs through the ALSA `default` device (dmix/dsnoop).
-- **May attenuate speech** — the SpeexDSP filter can reduce voice volume along with echo, especially at similar levels. This is a known limitation of the algorithm.
+- **WebRTC AEC3 performs best with broadband signals** (speech, music, noise). Pure tones (beeps, single-frequency alerts) may not be fully cancelled due to AEC3's transparent mode detection.
+- **WebRTC requires snd-aloop** kernel module, built automatically via DKMS by the installer.
+- **WebRTC takes exclusive access** to the WM8960 speaker while running. All playback must go through the loopback device.
+- **SpeexDSP provides ~15dB attenuation** — adequate for wake-word detection but noticeable echo remains.
+- **SpeexDSP may attenuate speech** along with echo during simultaneous playback.
 
 ## Uninstall
 
 ```bash
-cd tools/echo-cancel
 sudo ./install.sh --uninstall
 ```
 
 ## License
 
-GPLv3 — see [LICENSE-GPL3](LICENSE-GPL3). Based on [voice-engine/ec](https://github.com/voice-engine/ec).
+GPLv3 — see [LICENSE-GPL3](LICENSE-GPL3). SpeexDSP engine based on [voice-engine/ec](https://github.com/voice-engine/ec).
 
-The PortAudio ring buffer (`pa_ringbuffer.c`, `pa_ringbuffer.h`, `pa_memorybarrier.h`) is vendored from [PortAudio](http://www.portaudio.com) under a BSD-style license — see the file headers for details. These files are kept unmodified to preserve upstream compatibility.
+The PortAudio ring buffer (`pa_ringbuffer.c`, `pa_ringbuffer.h`, `pa_memorybarrier.h`) is vendored from [PortAudio](http://www.portaudio.com) under a BSD-style license — see the file headers for details. These files are kept close to upstream to preserve compatibility.

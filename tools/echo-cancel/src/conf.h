@@ -2,7 +2,13 @@
 #ifndef ECHO_CANCEL_CONF_H
 #define ECHO_CANCEL_CONF_H
 
+#ifdef __cplusplus
+#include <atomic>
+typedef std::atomic<int> ec_atomic_int;
+#else
 #include <stdatomic.h>
+typedef atomic_int ec_atomic_int;
+#endif
 
 typedef struct conf_t {
     const char *rec_pcm;          // recording PCM
@@ -17,7 +23,7 @@ typedef struct conf_t {
     unsigned buffer_size;
     unsigned playback_fifo_size;
     unsigned filter_length;
-    atomic_int bypass;      // thread-safe AEC bypass flag
+    ec_atomic_int bypass;   // thread-safe AEC bypass flag
 } conf_t;
 
 #endif // ECHO_CANCEL_CONF_H

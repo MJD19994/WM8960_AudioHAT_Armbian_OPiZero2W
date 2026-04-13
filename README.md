@@ -24,8 +24,11 @@ Complete audio support for WM8960-based audio HATs (including ReSpeaker 2-Mic HA
 - Simultaneous headphone and speaker output
 - Automatic DKMS module rebuild on kernel upgrades
 - Complete mixer configuration (all WM8960 controls set to known defaults)
+- Named mixer profiles: voice, music, headphones, conferencing, recording
 - Multi-application audio support (dmix/dsnoop)
+- ALSA device aliases: `wm8960_voice`, `wm8960_music`, `wm8960_record`
 - PulseAudio and PipeWire integration (auto-detected)
+- Echo cancellation support (WebRTC AEC3 ~30dB+, SpeexDSP ~15dB)
 - Hardware ALC, Noise Gate, and 3D Enhancement controls exposed
 
 ## Hardware Compatibility
@@ -173,9 +176,22 @@ WM8960_AudioHAT_Armbian_OPiZero2W/
 │   ├── 91-wm8960-pulseaudio.rules     # PulseAudio udev rule
 │   ├── wm8960-audiohat.conf           # PulseAudio profile set
 │   ├── wm8960-output.conf             # PulseAudio output path
-│   └── wm8960-input.conf              # PulseAudio input path
-└── scripts/                            # Utility scripts
-    └── test-audio.sh                  # Diagnostics and interactive audio tests
+│   ├── wm8960-input.conf              # PulseAudio input path
+│   ├── pipewire-echo-cancel.conf      # PipeWire echo cancellation config
+│   ├── pulse-echo-cancel.pa           # PulseAudio echo cancellation config
+│   └── alsa-aec.conf                  # ALSA loopback AEC virtual device
+├── tools/                              # Optional tools
+│   └── echo-cancel/                   # Acoustic echo cancellation
+│       ├── install.sh                 # Installer (WebRTC or SpeexDSP)
+│       ├── src/ec_webrtc.cpp          # WebRTC AEC3 engine (~30dB+)
+│       ├── src/ec.c                   # SpeexDSP engine (~15dB)
+│       └── README.md                  # Echo canceller documentation
+├── dkms/snd-aloop/                     # ALSA loopback module (for WebRTC AEC)
+│   ├── aloop.c                        # Kernel module source
+│   └── dkms.conf                      # DKMS configuration
+├── scripts/                            # Utility scripts
+│   └── test-audio.sh                  # Diagnostics and interactive audio tests
+└── TROUBLESHOOTING.md                  # Common issues and solutions
 ```
 
 ## Audio Configuration
