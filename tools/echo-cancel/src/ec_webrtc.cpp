@@ -56,15 +56,25 @@ static void signal_handler(int) { g_quit = 1; }
 
 static int alsa_set_params(snd_pcm_t *handle, unsigned rate, unsigned channels)
 {
+    int err;
     snd_pcm_hw_params_t *hw;
     snd_pcm_hw_params_alloca(&hw);
     snd_pcm_hw_params_any(handle, hw);
-    snd_pcm_hw_params_set_access(handle, hw, SND_PCM_ACCESS_RW_INTERLEAVED);
-    snd_pcm_hw_params_set_format(handle, hw, SND_PCM_FORMAT_S16_LE);
+    if ((err = snd_pcm_hw_params_set_access(handle, hw, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
+        fprintf(stderr, "ALSA set_access failed: %s\n", snd_strerror(err));
+        return -1;
+    }
+    if ((err = snd_pcm_hw_params_set_format(handle, hw, SND_PCM_FORMAT_S16_LE)) < 0) {
+        fprintf(stderr, "ALSA set_format failed: %s\n", snd_strerror(err));
+        return -1;
+    }
     unsigned actual = rate;
     snd_pcm_hw_params_set_rate_near(handle, hw, &actual, 0);
     if (actual != rate) fprintf(stderr, "Warning: rate %u → %u\n", rate, actual);
-    snd_pcm_hw_params_set_channels(handle, hw, channels);
+    if ((err = snd_pcm_hw_params_set_channels(handle, hw, channels)) < 0) {
+        fprintf(stderr, "ALSA set_channels %u failed: %s\n", channels, snd_strerror(err));
+        return -1;
+    }
     snd_pcm_uframes_t period = rate / 100;  // 10ms
     snd_pcm_hw_params_set_period_size_near(handle, hw, &period, 0);
     snd_pcm_uframes_t buffer = period * 4;
@@ -138,6 +148,9 @@ int main(int argc, char *argv[])
         umask(022);
         setsid();
         chdir("/");
+        freopen("/dev/null", "r", stdin);
+        freopen("/dev/null", "w", stdout);
+        freopen("/dev/null", "w", stderr);
     }
 
     unsigned frame_size = rate / 100;  // 10ms frames
@@ -207,6 +220,8 @@ int main(int argc, char *argv[])
     int16_t *out_buf     = (int16_t *)calloc(frame_size, sizeof(int16_t));
     if (!ref_buf || !ref_aec || !spk_stereo || !mic_stereo || !mic_mono || !out_buf) {
         fprintf(stderr, "Buffer allocation failed\n");
+        free(ref_buf); free(ref_aec); free(spk_stereo);
+        free(mic_stereo); free(mic_mono); free(out_buf);
         delete apm;
         goto fail4;
     }
@@ -217,6 +232,13 @@ int main(int argc, char *argv[])
         fp_rec = fopen("/tmp/recording.raw", "wb");
         fp_far = fopen("/tmp/playback.raw", "wb");
         fp_out = fopen("/tmp/out.raw", "wb");
+        if (!fp_rec || !fp_far || !fp_out) {
+            fprintf(stderr, "Warning: failed to open debug files, disabling debug recording\n");
+            if (fp_rec) fclose(fp_rec);
+            if (fp_far) fclose(fp_far);
+            if (fp_out) fclose(fp_out);
+            fp_rec = fp_far = fp_out = nullptr;
+        }
     }
 
     printf("WebRTC AEC — %s mode\n", mobile_mode ? "AECM (mobile)" : "AEC3");
@@ -245,6 +267,9 @@ int main(int argc, char *argv[])
             mr = snd_pcm_readi(pcm_mic, mic_stereo, frame_size);
             if (mr < 0) continue;
         }
+        // Zero-fill on short read to avoid processing stale data
+        if (mr > 0 && (unsigned)mr < frame_size)
+            memset(mic_stereo + mr * 2, 0, (frame_size - mr) * 2 * sizeof(int16_t));
         for (unsigned i = 0; i < frame_size; i++)
             mic_mono[i] = (mic_stereo[i * 2] + mic_stereo[i * 2 + 1]) / 2;
 
@@ -289,7 +314,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Cleanup
+    // Normal cleanup after successful run
     if (fp_rec) { fclose(fp_rec); fclose(fp_far); fclose(fp_out); }
     free(ref_buf);
     free(ref_aec);
@@ -300,9 +325,15 @@ int main(int argc, char *argv[])
     delete apm;
     }
 
+    snd_pcm_close(pcm_spk);
+    snd_pcm_close(pcm_mic);
+    snd_pcm_close(pcm_app_out);
+    snd_pcm_close(pcm_app_in);
+    return 0;
+
 fail4: snd_pcm_close(pcm_spk);
 fail3: snd_pcm_close(pcm_mic);
 fail2: snd_pcm_close(pcm_app_out);
 fail1: snd_pcm_close(pcm_app_in);
-    return 0;
+    return 1;
 }

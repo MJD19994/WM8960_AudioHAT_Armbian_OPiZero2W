@@ -41,6 +41,7 @@ if [ "$ENGINE" = "--uninstall" ] || [ "$ENGINE" = "uninstall" ]; then
     rm -f /usr/local/bin/wm8960-ec-webrtc
     rm -f /tmp/ec.input /tmp/ec.output
     rm -f /etc/alsa/conf.d/50-aec.conf
+    rm -f /etc/modules-load.d/snd-aloop.conf
     systemctl daemon-reload
     log "Echo canceller uninstalled"
     exit 0
@@ -73,6 +74,8 @@ if [ "$ENGINE" = "webrtc" ]; then
             dkms remove snd-aloop/1.0 --all 2>/dev/null || true
             dkms add snd-aloop/1.0
             dkms install snd-aloop/1.0
+        else
+            log "Warning: DKMS source not found at $ALOOP_DKMS_SRC, trying system module..."
         fi
         modprobe snd-aloop || {
             log_error "Failed to load snd-aloop module"

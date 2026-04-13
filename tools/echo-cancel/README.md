@@ -50,13 +50,22 @@ Based on [voice-engine/ec](https://github.com/voice-engine/ec). Uses named pipes
 
 ### WebRTC
 
+> **Important:** When the WebRTC echo canceller is running, it has exclusive access to the WM8960 speaker. All audio playback and recording **must** go through the loopback devices, not `default` or `hw:ahub0wm8960`.
+
 ```bash
-# Play audio through the echo canceller
+# Play audio (goes through EC → speaker)
 aplay -D hw:Loopback,0,0 music.wav
 
 # Record echo-cancelled audio
 arecord -D hw:Loopback,1,1 -r 48000 -c 1 -f S16_LE -d 5 recording.wav
+
+# Play back a recording (also through loopback)
+aplay -D hw:Loopback,0,0 recording.wav
 ```
+
+Configure your voice assistant to use:
+- **Playback device:** `hw:Loopback,0,0`
+- **Capture device:** `hw:Loopback,1,1`
 
 ### SpeexDSP
 

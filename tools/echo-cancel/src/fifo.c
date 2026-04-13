@@ -88,17 +88,20 @@ int fifo_setup(conf_t *conf)
         if (mkfifo(conf->out_fifo, 0666) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->out_fifo, strerror(errno));
             free(buf);
+            g_out_ringbuffer.buffer = NULL;
             return -1;
         }
     } else if (!S_ISFIFO(st.st_mode)) {
         if (remove(conf->out_fifo) != 0) {
             fprintf(stderr, "Failed to remove existing %s: %s\n", conf->out_fifo, strerror(errno));
             free(buf);
+            g_out_ringbuffer.buffer = NULL;
             return -1;
         }
         if (mkfifo(conf->out_fifo, 0666) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->out_fifo, strerror(errno));
             free(buf);
+            g_out_ringbuffer.buffer = NULL;
             return -1;
         }
     }
@@ -106,6 +109,7 @@ int fifo_setup(conf_t *conf)
     if (pthread_create(&g_writer_thread, NULL, fifo_thread, conf) != 0) {
         fprintf(stderr, "Failed to create FIFO writer thread.\n");
         free(buf);
+        g_out_ringbuffer.buffer = NULL;
         return -1;
     }
     g_thread_created = 1;

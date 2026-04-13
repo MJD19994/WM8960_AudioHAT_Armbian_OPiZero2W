@@ -7,10 +7,10 @@ CC := gcc
 CXX := g++
 CFLAGS += -Isrc -Wall -std=gnu99 -O3 -MMD -MP
 CXXFLAGS += -Isrc -Wall -std=c++17 -O3 -MMD -MP \
-    $(shell pkg-config --cflags webrtc-audio-processing-1 2>/dev/null)
+    $(shell pkg-config --cflags webrtc-audio-processing-1)
 LDLIBS_SPEEX := -ldl -lm -lrt -lpthread -lasound $(shell pkg-config --libs speexdsp)
 LDLIBS_WEBRTC := -lasound \
-    $(shell pkg-config --libs webrtc-audio-processing-1 2>/dev/null)
+    $(shell pkg-config --libs webrtc-audio-processing-1)
 
 SRCDIR := src
 
@@ -32,7 +32,7 @@ wm8960-ec: $(SPEEX_OBJ)
 	$(CXX) $(SPEEX_OBJ) $(LDLIBS_SPEEX) -o $@
 
 wm8960-ec-webrtc: $(WEBRTC_OBJ)
-	$(CXX) $(CXXFLAGS) $(WEBRTC_OBJ) $(LDLIBS_WEBRTC) -o $@
+	$(CXX) $(WEBRTC_OBJ) $(LDLIBS_WEBRTC) -o $@
 
 $(SRCDIR)/%.o: $(SRCDIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
