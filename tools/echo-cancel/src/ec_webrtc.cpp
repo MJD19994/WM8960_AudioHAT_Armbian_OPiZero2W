@@ -79,7 +79,7 @@ static int alsa_set_params(snd_pcm_t *handle, unsigned rate, unsigned channels)
     snd_pcm_hw_params_set_period_size_near(handle, hw, &period, 0);
     snd_pcm_uframes_t buffer = period * 4;
     snd_pcm_hw_params_set_buffer_size_near(handle, hw, &buffer);
-    int err = snd_pcm_hw_params(handle, hw);
+    err = snd_pcm_hw_params(handle, hw);
     if (err < 0) {
         fprintf(stderr, "ALSA hw_params failed: %s\n", snd_strerror(err));
         return -1;
