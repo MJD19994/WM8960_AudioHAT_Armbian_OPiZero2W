@@ -530,13 +530,6 @@ ensure_dkms_module() {
     local kver
     kver=$(uname -r)
 
-    # Check if the module is available from the installed kernel (distro-provided)
-    if modprobe -n snd_soc_wm8960 >/dev/null 2>&1; then
-        log_debug "WM8960 module available from installed kernel package"
-        modprobe snd_soc_wm8960 2>/dev/null || true
-        return 0
-    fi
-
     # Check if our DKMS module is already installed for this kernel
     if dkms status "${module_name}/${module_version}" -k "$kver" 2>/dev/null | grep -q installed; then
         log_debug "WM8960 DKMS module already installed for kernel $kver"
