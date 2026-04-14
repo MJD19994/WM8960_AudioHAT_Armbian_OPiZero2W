@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <signal.h>
 #include <sys/stat.h>
 
 #include <alsa/asoundlib.h>
@@ -26,7 +27,6 @@ PaUtilRingBuffer g_capture_ringbuffer;
 static pthread_t g_playback_thread;
 static pthread_t g_capture_thread;
 
-#include <signal.h>
 extern volatile sig_atomic_t g_is_quit;
 
 
@@ -149,8 +149,8 @@ static void *playback(void *ptr)
     mmap = set_params(handle, conf->rate, conf->ref_channels, chunk_size);
 
     frame_bytes = conf->ref_channels * 2;
-    chunk_bytes = chunk_size * frame_bytes;
-    chunk = (char *)malloc(chunk_bytes);
+    chunk_bytes = (unsigned)((size_t)chunk_size * frame_bytes);
+    chunk = (char *)malloc((size_t)chunk_size * frame_bytes);
     if (chunk == NULL)
     {
         fprintf(stderr, "not enough memory\n");

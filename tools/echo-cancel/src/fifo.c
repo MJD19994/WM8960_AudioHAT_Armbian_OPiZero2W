@@ -67,9 +67,13 @@ static void *fifo_thread(void *ptr)
                         result = write(fd, data2, size2 * g_out_ringbuffer.elementSizeBytes);
                         if (result > 0)
                             total_advanced += result / g_out_ringbuffer.elementSizeBytes;
-                        else if (result < 0 && errno == EPIPE) {
-                            fprintf(stderr, "FIFO reader closed, exiting writer thread\n");
-                            break;
+                        else if (result < 0) {
+                            if (errno == EPIPE) {
+                                fprintf(stderr, "FIFO reader closed, exiting writer thread\n");
+                                break;
+                            }
+                            if (errno != EINTR)
+                                sleep(1);
                         }
                     }
                 } else if (result < 0) {

@@ -186,9 +186,12 @@ int main(int argc, char *argv[])
         }
 
         /* Redirect stdio to /dev/null */
-        freopen("/dev/null", "r", stdin);
-        freopen("/dev/null", "w", stdout);
-        freopen("/dev/null", "w", stderr);
+        if (freopen("/dev/null", "r", stdin) == NULL ||
+            freopen("/dev/null", "w", stdout) == NULL ||
+            freopen("/dev/null", "w", stderr) == NULL)
+        {
+            exit(1);
+        }
     }
 
     int frame_size = config.rate * 10 / 1000; // 10 ms
