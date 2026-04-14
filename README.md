@@ -186,9 +186,9 @@ WM8960_AudioHAT_Armbian_OPiZero2W/
 │       ├── src/ec_webrtc.cpp          # WebRTC AEC3 engine (~30dB+)
 │       ├── src/ec.c                   # SpeexDSP engine (~15dB)
 │       └── README.md                  # Echo canceller documentation
-├── dkms/snd-aloop/                     # ALSA loopback module (for WebRTC AEC)
-│   ├── aloop.c                        # Kernel module source
-│   └── dkms.conf                      # DKMS configuration
+│   └── snd-aloop/                     # ALSA loopback module (for WebRTC AEC)
+│       ├── aloop.c                    # Kernel module source
+│       └── dkms.conf                  # DKMS configuration
 ├── scripts/                            # Utility scripts
 │   └── test-audio.sh                  # Diagnostics and interactive audio tests
 └── TROUBLESHOOTING.md                  # Common issues and solutions

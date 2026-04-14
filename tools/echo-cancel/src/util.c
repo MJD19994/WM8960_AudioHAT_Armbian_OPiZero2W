@@ -3,6 +3,8 @@ unsigned power2(unsigned v)
 {
     if (v == 0)
         return 1;
+    if (v > 0x80000000u)
+        return 0x80000000u;
     v--;
     v |= v >> 1;
     v |= v >> 2;

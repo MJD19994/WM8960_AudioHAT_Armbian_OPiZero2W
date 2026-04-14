@@ -36,7 +36,7 @@ These configs are **not** installed automatically — they are opt-in for voice 
 | `pipewire-echo-cancel.conf` | `/etc/pipewire/pipewire.conf.d/20-echo-cancel.conf` | PipeWire: WebRTC acoustic echo cancellation. Creates virtual echo-cancelled source/sink nodes. |
 | `pulse-echo-cancel.pa` | `/etc/pulse/default.pa.d/echo-cancel.pa` | PulseAudio: WebRTC acoustic echo cancellation via `module-echo-cancel`. |
 
-For bare ALSA echo cancellation, see [`tools/echo-cancel/`](../tools/echo-cancel/) which provides a SpeexDSP-based echo canceller.
+For bare ALSA echo cancellation, see [`tools/echo-cancel/`](../tools/echo-cancel/) which provides a WebRTC AEC3 engine (default, requires snd-aloop) and a SpeexDSP fallback engine.
 
 ## Echo Cancellation Setup
 

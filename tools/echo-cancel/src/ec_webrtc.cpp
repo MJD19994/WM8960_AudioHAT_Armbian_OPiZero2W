@@ -90,10 +90,12 @@ static int alsa_set_params(snd_pcm_t *handle, unsigned rate, unsigned channels)
 static void alsa_recover(snd_pcm_t *h, int err)
 {
     if (err == -EPIPE) {
-        snd_pcm_prepare(h);
+        if (snd_pcm_prepare(h) < 0)
+            fprintf(stderr, "alsa_recover: prepare failed after underrun\n");
     } else if (err == -ESTRPIPE) {
         while (snd_pcm_resume(h) == -EAGAIN) usleep(10000);
-        snd_pcm_prepare(h);
+        if (snd_pcm_prepare(h) < 0)
+            fprintf(stderr, "alsa_recover: prepare failed after suspend\n");
     }
 }
 
@@ -147,10 +149,12 @@ int main(int argc, char *argv[])
         if (pid > 0) return 0;
         umask(022);
         setsid();
-        chdir("/");
-        freopen("/dev/null", "r", stdin);
-        freopen("/dev/null", "w", stdout);
-        freopen("/dev/null", "w", stderr);
+        if (chdir("/") < 0) { perror("chdir"); return 1; }
+        if (!freopen("/dev/null", "r", stdin) ||
+            !freopen("/dev/null", "w", stdout) ||
+            !freopen("/dev/null", "w", stderr)) {
+            return 1;
+        }
     }
 
     unsigned frame_size = rate / 100;  // 10ms frames
@@ -265,7 +269,10 @@ int main(int argc, char *argv[])
         if (mr < 0) {
             alsa_recover(pcm_mic, mr);
             mr = snd_pcm_readi(pcm_mic, mic_stereo, frame_size);
-            if (mr < 0) continue;
+            if (mr < 0) {
+                memset(mic_stereo, 0, frame_size * 2 * sizeof(int16_t));
+                mr = 0;
+            }
         }
         // Zero-fill on short read to avoid processing stale data
         if (mr > 0 && (unsigned)mr < frame_size)

@@ -40,9 +40,12 @@ $(SRCDIR)/%.o: $(SRCDIR)/%.c
 $(SRCDIR)/%.o: $(SRCDIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-install: all
-	install -D -m 755 wm8960-ec $(PREFIX)/bin/wm8960-ec
-	install -D -m 755 wm8960-ec-webrtc $(PREFIX)/bin/wm8960-ec-webrtc
+INSTALL_TARGETS ?= wm8960-ec wm8960-ec-webrtc
+
+install: $(INSTALL_TARGETS)
+	for bin in $(INSTALL_TARGETS); do \
+		install -D -m 755 $$bin $(PREFIX)/bin/$$bin; \
+	done
 
 uninstall:
 	rm -f $(PREFIX)/bin/wm8960-ec

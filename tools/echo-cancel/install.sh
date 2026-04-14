@@ -24,15 +24,18 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # Parse arguments
-ENGINE="${1:-webrtc}"
-if [ "$ENGINE" = "--uninstall" ]; then
-    ENGINE="uninstall"
-elif [ "${2:-}" = "--uninstall" ]; then
-    ENGINE="uninstall"
-fi
+UNINSTALL=0
+ENGINE="webrtc"
+for arg in "$@"; do
+    case "$arg" in
+        --uninstall) UNINSTALL=1 ;;
+        webrtc|speex) ENGINE="$arg" ;;
+        *) log_error "Unknown argument: $arg"; echo "Usage: sudo ./install.sh [webrtc|speex] [--uninstall]"; exit 1 ;;
+    esac
+done
 
 # --- Uninstall ---
-if [ "$ENGINE" = "--uninstall" ] || [ "$ENGINE" = "uninstall" ]; then
+if [ "$UNINSTALL" -eq 1 ]; then
     log "Uninstalling echo canceller..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
@@ -47,11 +50,6 @@ if [ "$ENGINE" = "--uninstall" ] || [ "$ENGINE" = "uninstall" ]; then
     exit 0
 fi
 
-if [ "$ENGINE" != "webrtc" ] && [ "$ENGINE" != "speex" ]; then
-    log_error "Unknown engine '$ENGINE' — use 'webrtc' or 'speex'"
-    echo "Usage: sudo ./install.sh [webrtc|speex] [--uninstall]"
-    exit 1
-fi
 
 log "Installing $ENGINE echo canceller..."
 
@@ -83,7 +81,7 @@ if [ "$ENGINE" = "webrtc" ]; then
         }
     fi
     # Persist module across reboots
-    if ! grep -q "^snd-aloop" /etc/modules-load.d/*.conf 2>/dev/null; then
+    if ! grep -qE "^snd[-_]aloop" /etc/modules-load.d/*.conf 2>/dev/null && ! grep -qE "^snd[-_]aloop" /etc/modules 2>/dev/null; then
         echo "snd-aloop" > /etc/modules-load.d/snd-aloop.conf
     fi
     log "snd-aloop loaded"
@@ -125,7 +123,7 @@ Requires=wm8960-audio.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/wm8960-ec-webrtc -p hw:ahub0wm8960,0 -r 48000 -n 1
+ExecStart=/usr/local/bin/wm8960-ec-webrtc -i hw:Loopback,1,0 -o hw:Loopback,0,1 -m dsnooper -p plughw:ahub0wm8960,0 -r 48000 -n 1
 Restart=always
 RestartSec=3
 TimeoutStartSec=30

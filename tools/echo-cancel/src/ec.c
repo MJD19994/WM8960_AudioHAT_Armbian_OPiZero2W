@@ -41,7 +41,7 @@ extern int fifo_setup(conf_t *conf);
 extern void fifo_cleanup(void);
 extern int fifo_write(void *buf, size_t frames);
 
-void int_handler(int signal)
+static void int_handler(int signal)
 {
     (void)signal;
     const char msg[] = "Caught signal, quit...\n";
@@ -126,6 +126,10 @@ int main(int argc, char *argv[])
     }
 
     /* Validate critical parameters */
+    if (delay < 0) {
+        fprintf(stderr, "Invalid delay: %d\n", delay);
+        exit(1);
+    }
     if (config.rate == 0 || config.rate > 192000) {
         fprintf(stderr, "Invalid sample rate: %u\n", config.rate);
         exit(1);
@@ -250,8 +254,10 @@ int main(int argc, char *argv[])
 
     while (!g_is_quit)
     {
-        capture_read(rec, frame_size, timeout);
-        playback_read(far, frame_size, timeout);
+        if (capture_read(rec, frame_size, timeout) < 0)
+            continue;
+        if (playback_read(far, frame_size, timeout) < 0)
+            memset(far, 0, frame_size * config.ref_channels * sizeof(int16_t));
 
         if (!atomic_load(&config.bypass))
         {

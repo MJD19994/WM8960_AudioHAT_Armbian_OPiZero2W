@@ -24,36 +24,60 @@ static void *fifo_thread(void *ptr)
     conf_t *conf = (conf_t *)ptr;
     ring_buffer_size_t size1, size2, available;
     void *data1, *data2;
-    int fd = open(conf->out_fifo, O_WRONLY);      // will block until reader is available
-    if (fd < 0) {
-        fprintf(stderr, "failed to open %s: %s\n", conf->out_fifo, strerror(errno));
-        return NULL;
+
+    // Non-blocking open so we can check g_is_quit while waiting for a reader
+    int fd = -1;
+    while (!g_is_quit) {
+        fd = open(conf->out_fifo, O_WRONLY | O_NONBLOCK);
+        if (fd >= 0) {
+            // Clear non-blocking flag for normal writes
+            int flags = fcntl(fd, F_GETFL);
+            fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+            break;
+        }
+        if (errno != ENXIO) {  // ENXIO = no reader yet
+            fprintf(stderr, "failed to open %s: %s\n", conf->out_fifo, strerror(errno));
+            return NULL;
+        }
+        usleep(100000);
     }
+    if (fd < 0)
+        return NULL;
 
     // clear
     PaUtil_AdvanceRingBufferReadIndex(&g_out_ringbuffer, PaUtil_GetRingBufferReadAvailable(&g_out_ringbuffer));
     while (!g_is_quit)
     {
         available = PaUtil_GetRingBufferReadAvailable(&g_out_ringbuffer);
-        PaUtil_GetRingBufferReadRegions(&g_out_ringbuffer, available, &data1, &size1, &data2, &size2);
-        if (size1 > 0) {
-            ssize_t result = write(fd, data1, size1 * g_out_ringbuffer.elementSizeBytes);
-            if (result > 0) {
-                PaUtil_AdvanceRingBufferReadIndex(&g_out_ringbuffer, result / g_out_ringbuffer.elementSizeBytes);
-            } else if (result < 0 && errno != EINTR) {
-                sleep(1);
+        if (available > 0) {
+            ring_buffer_size_t total_advanced = 0;
+            PaUtil_GetRingBufferReadRegions(&g_out_ringbuffer, available, &data1, &size1, &data2, &size2);
+            if (size1 > 0) {
+                ssize_t result = write(fd, data1, size1 * g_out_ringbuffer.elementSizeBytes);
+                if (result > 0) {
+                    ring_buffer_size_t elements = result / g_out_ringbuffer.elementSizeBytes;
+                    total_advanced += elements;
+                    // Only write data2 if data1 was fully written
+                    if (elements == size1 && size2 > 0) {
+                        result = write(fd, data2, size2 * g_out_ringbuffer.elementSizeBytes);
+                        if (result > 0)
+                            total_advanced += result / g_out_ringbuffer.elementSizeBytes;
+                        else if (result < 0 && errno == EPIPE)
+                            break;
+                    }
+                } else if (result < 0) {
+                    if (errno == EPIPE) {
+                        fprintf(stderr, "FIFO reader closed, exiting writer thread\n");
+                        break;
+                    }
+                    if (errno != EINTR)
+                        sleep(1);
+                }
             }
-        }
-        if (size2 > 0) {
-            ssize_t result = write(fd, data2, size2 * g_out_ringbuffer.elementSizeBytes);
-            if (result > 0) {
-                PaUtil_AdvanceRingBufferReadIndex(&g_out_ringbuffer, result / g_out_ringbuffer.elementSizeBytes);
-            } else if (result < 0 && errno != EINTR) {
-                sleep(1);
-            }
-        }
-        if (size1 == 0 && size2 == 0) {
-            usleep(100000);
+            if (total_advanced > 0)
+                PaUtil_AdvanceRingBufferReadIndex(&g_out_ringbuffer, total_advanced);
+        } else {
+            usleep(5000);
         }
     }
 
@@ -85,7 +109,7 @@ int fifo_setup(conf_t *conf)
     }
 
     if (stat(conf->out_fifo, &st) != 0) {
-        if (mkfifo(conf->out_fifo, 0666) != 0) {
+        if (mkfifo(conf->out_fifo, 0660) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->out_fifo, strerror(errno));
             free(buf);
             g_out_ringbuffer.buffer = NULL;
@@ -98,7 +122,7 @@ int fifo_setup(conf_t *conf)
             g_out_ringbuffer.buffer = NULL;
             return -1;
         }
-        if (mkfifo(conf->out_fifo, 0666) != 0) {
+        if (mkfifo(conf->out_fifo, 0660) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->out_fifo, strerror(errno));
             free(buf);
             g_out_ringbuffer.buffer = NULL;

@@ -52,7 +52,7 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
     return err;
 }
 
-int set_params(snd_pcm_t *handle, unsigned rate, unsigned channels, unsigned chunk_size)
+static int set_params(snd_pcm_t *handle, unsigned rate, unsigned channels, unsigned chunk_size)
 {
     int err;
     int mmap = 0;
@@ -125,7 +125,7 @@ int set_params(snd_pcm_t *handle, unsigned rate, unsigned channels, unsigned chu
     return mmap;
 }
 
-void *playback(void *ptr)
+static void *playback(void *ptr)
 {
     int err;
     unsigned chunk_bytes;
@@ -160,7 +160,7 @@ void *playback(void *ptr)
 
     if (stat(conf->playback_fifo, &st) != 0)
     {
-        if (mkfifo(conf->playback_fifo, 0666) != 0) {
+        if (mkfifo(conf->playback_fifo, 0660) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->playback_fifo, strerror(errno));
             exit(1);
         }
@@ -171,7 +171,7 @@ void *playback(void *ptr)
             fprintf(stderr, "Failed to remove existing %s: %s\n", conf->playback_fifo, strerror(errno));
             exit(1);
         }
-        if (mkfifo(conf->playback_fifo, 0666) != 0) {
+        if (mkfifo(conf->playback_fifo, 0660) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->playback_fifo, strerror(errno));
             exit(1);
         }
@@ -297,7 +297,10 @@ void *playback(void *ptr)
             }
             if (r > 0)
             {
-                PaUtil_WriteRingBuffer(&g_playback_ringbuffer, data, r);
+                ring_buffer_size_t written =
+                    PaUtil_WriteRingBuffer(&g_playback_ringbuffer, data, r);
+                if (written < r)
+                    printf("playback lost %ld frames\n", (long)(r - written));
                 count -= r;
                 data += r * frame_bytes;
             }
@@ -305,12 +308,13 @@ void *playback(void *ptr)
     }
 
     snd_pcm_close(handle);
+    close(fd);
     free(chunk);
 
     return NULL;
 }
 
-void *capture(void *ptr)
+static void *capture(void *ptr)
 {
     int err;
     unsigned frame_bytes;
@@ -396,6 +400,7 @@ int capture_start(conf_t *conf)
     if (ret == -1)
     {
         fprintf(stderr, "Initialize ring buffer but element count is not a power of 2.\n");
+        free(buf);
         exit(1);
     }
 
@@ -403,6 +408,7 @@ int capture_start(conf_t *conf)
     if (err != 0) {
         fprintf(stderr, "Failed to create capture thread: %s\n", strerror(err));
         free(buf);
+        g_capture_ringbuffer.buffer = NULL;
         return -1;
     }
 
@@ -425,6 +431,7 @@ int playback_start(conf_t *conf)
     if (ret == -1)
     {
         fprintf(stderr, "Initialize ring buffer but element count is not a power of 2.\n");
+        free(buf);
         exit(1);
     }
 
@@ -432,28 +439,35 @@ int playback_start(conf_t *conf)
     if (err != 0) {
         fprintf(stderr, "Failed to create playback thread: %s\n", strerror(err));
         free(buf);
+        g_playback_ringbuffer.buffer = NULL;
         return -1;
     }
 
     return 0;
 }
 
-int capture_stop()
+int capture_stop(void)
 {
     void *ret = NULL;
     pthread_join(g_capture_thread, &ret);
 
-    free(g_capture_ringbuffer.buffer);
+    if (g_capture_ringbuffer.buffer) {
+        free(g_capture_ringbuffer.buffer);
+        g_capture_ringbuffer.buffer = NULL;
+    }
 
     return 0;
 }
 
-int playback_stop()
+int playback_stop(void)
 {
     void *ret = NULL;
     pthread_join(g_playback_thread, &ret);
 
-    free(g_playback_ringbuffer.buffer);
+    if (g_playback_ringbuffer.buffer) {
+        free(g_playback_ringbuffer.buffer);
+        g_playback_ringbuffer.buffer = NULL;
+    }
 
     return 0;
 }
