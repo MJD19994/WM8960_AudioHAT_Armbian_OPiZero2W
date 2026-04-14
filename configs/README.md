@@ -95,7 +95,7 @@ pactl list sinks short | grep echo_cancelled
 
 ### Bare ALSA Echo Cancellation
 
-For systems without PipeWire or PulseAudio (e.g., classic Rhasspy), see the [`tools/echo-cancel/`](../tools/echo-cancel/) directory which provides a standalone SpeexDSP-based echo canceller that works directly with ALSA.
+For systems without PipeWire or PulseAudio (e.g., classic Rhasspy), see the [`tools/echo-cancel/`](../tools/echo-cancel/) directory which provides a WebRTC AEC3 engine (default, requires snd-aloop) and a SpeexDSP fallback engine that works directly with ALSA.
 
 ## Manual Audio Server Setup
 

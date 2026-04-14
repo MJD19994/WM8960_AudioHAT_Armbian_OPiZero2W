@@ -82,14 +82,12 @@ systemctl daemon-reload
 # Remove ALSA config and restore the user's pre-install asound.conf if we
 # backed one up during install. The backup file (.wm8960-backup) is created
 # by install.sh on first install when /etc/asound.conf already exists.
-if [ -f /etc/asound.conf ]; then
-    if [ -f /etc/asound.conf.wm8960-backup ]; then
-        log_info "Restoring original /etc/asound.conf from backup"
-        mv /etc/asound.conf.wm8960-backup /etc/asound.conf
-    else
-        log_info "Removing /etc/asound.conf (no pre-install backup found)"
-        rm -f /etc/asound.conf
-    fi
+if [ -f /etc/asound.conf.wm8960-backup ]; then
+    log_info "Restoring original /etc/asound.conf from backup"
+    mv /etc/asound.conf.wm8960-backup /etc/asound.conf
+elif [ -f /etc/asound.conf ]; then
+    log_info "Removing /etc/asound.conf (no pre-install backup found)"
+    rm -f /etc/asound.conf
 else
     log_debug "/etc/asound.conf not found — nothing to remove"
 fi

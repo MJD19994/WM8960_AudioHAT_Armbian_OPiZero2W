@@ -13,7 +13,8 @@
 #include "conf.h"
 #include "util.h"
 
-extern int g_is_quit;
+#include <signal.h>
+extern volatile sig_atomic_t g_is_quit;
 
 PaUtilRingBuffer g_out_ringbuffer;
 static pthread_t g_writer_thread;
@@ -32,7 +33,11 @@ static void *fifo_thread(void *ptr)
         if (fd >= 0) {
             // Clear non-blocking flag for normal writes
             int flags = fcntl(fd, F_GETFL);
-            fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+            if (flags < 0 || fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) < 0) {
+                fprintf(stderr, "fcntl failed on %s: %s\n", conf->out_fifo, strerror(errno));
+                close(fd);
+                return NULL;
+            }
             break;
         }
         if (errno != ENXIO) {  // ENXIO = no reader yet
@@ -62,8 +67,10 @@ static void *fifo_thread(void *ptr)
                         result = write(fd, data2, size2 * g_out_ringbuffer.elementSizeBytes);
                         if (result > 0)
                             total_advanced += result / g_out_ringbuffer.elementSizeBytes;
-                        else if (result < 0 && errno == EPIPE)
+                        else if (result < 0 && errno == EPIPE) {
+                            fprintf(stderr, "FIFO reader closed, exiting writer thread\n");
                             break;
+                        }
                     }
                 } else if (result < 0) {
                     if (errno == EPIPE) {

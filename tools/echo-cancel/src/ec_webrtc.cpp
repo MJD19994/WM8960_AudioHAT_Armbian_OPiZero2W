@@ -52,7 +52,7 @@ static const char *usage_text =
     "Requires snd-aloop kernel module: modprobe snd-aloop\n";
 
 static volatile sig_atomic_t g_quit = 0;
-static void signal_handler(int) { g_quit = 1; }
+static void signal_handler(int /*sig*/) { g_quit = 1; }
 
 static int alsa_set_params(snd_pcm_t *handle, unsigned rate, unsigned channels)
 {
@@ -150,10 +150,16 @@ int main(int argc, char *argv[])
         umask(022);
         setsid();
         if (chdir("/") < 0) { perror("chdir"); return 1; }
-        if (!freopen("/dev/null", "r", stdin) ||
-            !freopen("/dev/null", "w", stdout) ||
-            !freopen("/dev/null", "w", stderr)) {
+        if (!freopen("/dev/null", "r", stdin)) {
+            perror("freopen stdin");
             return 1;
+        }
+        if (!freopen("/dev/null", "w", stdout)) {
+            perror("freopen stdout");
+            return 1;
+        }
+        if (!freopen("/dev/null", "w", stderr)) {
+            return 1;  // Can't log — stderr is now invalid
         }
     }
 
@@ -285,6 +291,8 @@ int main(int argc, char *argv[])
         if (ar < 0) {
             memset(ref_buf, 0, frame_size * sizeof(int16_t));
             if (ar != -EAGAIN) alsa_recover(pcm_app_in, ar);
+        } else if (ar > 0 && (unsigned)ar < frame_size) {
+            memset(ref_buf + ar, 0, (frame_size - ar) * sizeof(int16_t));
         }
 
         // 3. Feed reference to AEC (copy — speaker gets unmodified audio)

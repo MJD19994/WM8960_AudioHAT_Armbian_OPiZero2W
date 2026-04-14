@@ -48,8 +48,9 @@ install: $(INSTALL_TARGETS)
 	done
 
 uninstall:
-	rm -f $(PREFIX)/bin/wm8960-ec
-	rm -f $(PREFIX)/bin/wm8960-ec-webrtc
+	for bin in $(INSTALL_TARGETS); do \
+		rm -f $(PREFIX)/bin/$$bin; \
+	done
 
 clean:
 	rm -f $(SRCDIR)/*.o $(SRCDIR)/*.d wm8960-ec wm8960-ec-webrtc

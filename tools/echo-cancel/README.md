@@ -66,6 +66,7 @@ aplay -D hw:Loopback,0,0 recording.wav
 Configure your voice assistant to use:
 - **Playback device:** `hw:Loopback,0,0`
 - **Capture device:** `hw:Loopback,1,1`
+- **Format:** 48000 Hz, mono, S16_LE (most assistants negotiate automatically)
 
 ### SpeexDSP
 

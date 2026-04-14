@@ -26,7 +26,8 @@ PaUtilRingBuffer g_capture_ringbuffer;
 static pthread_t g_playback_thread;
 static pthread_t g_capture_thread;
 
-extern int g_is_quit;
+#include <signal.h>
+extern volatile sig_atomic_t g_is_quit;
 
 
 static int xrun_recovery(snd_pcm_t *handle, int err)
@@ -335,7 +336,7 @@ static void *capture(void *ptr)
     mmap = set_params(handle, conf->rate, conf->rec_channels, chunk_size * 2);
 
     frame_bytes = conf->rec_channels * 2;
-    chunk = malloc(chunk_size * frame_bytes);
+    chunk = malloc((size_t)chunk_size * frame_bytes);
     if (chunk == NULL)
     {
         fprintf(stderr, "not enough memory\n");
@@ -449,9 +450,8 @@ int playback_start(conf_t *conf)
 int capture_stop(void)
 {
     void *ret = NULL;
-    pthread_join(g_capture_thread, &ret);
-
     if (g_capture_ringbuffer.buffer) {
+        pthread_join(g_capture_thread, &ret);
         free(g_capture_ringbuffer.buffer);
         g_capture_ringbuffer.buffer = NULL;
     }
@@ -462,9 +462,8 @@ int capture_stop(void)
 int playback_stop(void)
 {
     void *ret = NULL;
-    pthread_join(g_playback_thread, &ret);
-
     if (g_playback_ringbuffer.buffer) {
+        pthread_join(g_playback_thread, &ret);
         free(g_playback_ringbuffer.buffer);
         g_playback_ringbuffer.buffer = NULL;
     }

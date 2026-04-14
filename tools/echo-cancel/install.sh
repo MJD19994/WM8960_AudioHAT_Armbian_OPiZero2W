@@ -30,7 +30,7 @@ for arg in "$@"; do
     case "$arg" in
         --uninstall) UNINSTALL=1 ;;
         webrtc|speex) ENGINE="$arg" ;;
-        *) log_error "Unknown argument: $arg"; echo "Usage: sudo ./install.sh [webrtc|speex] [--uninstall]"; exit 1 ;;
+        *) log_error "Unknown argument: $arg"; echo "Usage: sudo ./install.sh [webrtc|speex] [--uninstall]" >&2; exit 1 ;;
     esac
 done
 
@@ -73,7 +73,7 @@ if [ "$ENGINE" = "webrtc" ]; then
             dkms add snd-aloop/1.0
             dkms install snd-aloop/1.0
         else
-            log "Warning: DKMS source not found at $ALOOP_DKMS_SRC, trying system module..."
+            log "Warning: DKMS source not found at '$ALOOP_DKMS_SRC', trying system module..."
         fi
         modprobe snd-aloop || {
             log_error "Failed to load snd-aloop module"

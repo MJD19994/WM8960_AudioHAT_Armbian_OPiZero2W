@@ -184,6 +184,11 @@ int main(int argc, char *argv[])
             printf("chdir() failed\n");
             exit(1);
         }
+
+        /* Redirect stdio to /dev/null */
+        freopen("/dev/null", "r", stdin);
+        freopen("/dev/null", "w", stdout);
+        freopen("/dev/null", "w", stderr);
     }
 
     int frame_size = config.rate * 10 / 1000; // 10 ms
