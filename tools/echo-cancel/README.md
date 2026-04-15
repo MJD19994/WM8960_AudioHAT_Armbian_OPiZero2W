@@ -89,6 +89,20 @@ sox input.wav -r 48000 -c 1 -b 16 -e signed -t raw - > /tmp/ec.input
 -r rate   Sample rate: 16000, 32000, or 48000 (default: 48000)
 ```
 
+### SpeexDSP Tuning Flags
+
+```text
+-r rate   Sample rate (default: 48000)
+-c ch     Recording channels (default: 1)
+-d delay  Delay compensation in frames (default: 0)
+-f length AEC filter length in samples (default: 4096, range: 1024-8192)
+-b size   Ring buffer size (default: 16384)
+-s        Save debug audio to /tmp/*.raw
+-D        Daemonize
+```
+
+The most useful tuning parameter is `-f` (filter length). Larger values handle more reverberant rooms but use more CPU. Default 4096 = 85ms at 48kHz.
+
 ### Service Management
 
 ```bash
