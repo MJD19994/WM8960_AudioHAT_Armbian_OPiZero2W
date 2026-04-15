@@ -120,7 +120,7 @@ int fifo_setup(conf_t *conf)
     }
 
     if (stat(conf->out_fifo, &st) != 0) {
-        if (mkfifo(conf->out_fifo, 0660) != 0) {
+        if (mkfifo(conf->out_fifo, 0666) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->out_fifo, strerror(errno));
             free(buf);
             g_out_ringbuffer.buffer = NULL;
@@ -133,7 +133,7 @@ int fifo_setup(conf_t *conf)
             g_out_ringbuffer.buffer = NULL;
             return -1;
         }
-        if (mkfifo(conf->out_fifo, 0660) != 0) {
+        if (mkfifo(conf->out_fifo, 0666) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->out_fifo, strerror(errno));
             free(buf);
             g_out_ringbuffer.buffer = NULL;

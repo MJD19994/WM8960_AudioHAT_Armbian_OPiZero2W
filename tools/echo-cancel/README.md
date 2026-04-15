@@ -29,7 +29,7 @@ The installer handles all dependencies, builds from source, installs the binary,
 
 The EC binary acts as the audio router between applications and hardware:
 
-```
+```text
 App plays to hw:Loopback,0,0
   → (snd-aloop) → EC reads from hw:Loopback,1,0
   → EC feeds reference to WebRTC AEC3
@@ -80,7 +80,7 @@ sox input.wav -r 48000 -c 1 -b 16 -e signed -t raw - > /tmp/ec.input
 
 ### WebRTC Tuning Flags
 
-```
+```text
 -n level  Noise suppression: 0=off 1=low 2=mod 3=high 4=vhigh (default: 1)
 -g        Enable automatic gain control
 -M        Mobile mode (AECM — lighter CPU, less cancellation)

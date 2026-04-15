@@ -161,7 +161,7 @@ static void *playback(void *ptr)
 
     if (stat(conf->playback_fifo, &st) != 0)
     {
-        if (mkfifo(conf->playback_fifo, 0660) != 0) {
+        if (mkfifo(conf->playback_fifo, 0666) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->playback_fifo, strerror(errno));
             exit(1);
         }
@@ -172,7 +172,7 @@ static void *playback(void *ptr)
             fprintf(stderr, "Failed to remove existing %s: %s\n", conf->playback_fifo, strerror(errno));
             exit(1);
         }
-        if (mkfifo(conf->playback_fifo, 0660) != 0) {
+        if (mkfifo(conf->playback_fifo, 0666) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->playback_fifo, strerror(errno));
             exit(1);
         }
@@ -261,10 +261,10 @@ static void *playback(void *ptr)
         }
         else
         {
+            zero_count = 0;
             if (atomic_load(&conf->bypass))
             {
                 atomic_store(&conf->bypass, 0);
-                zero_count = 0;
                 printf("Enable AEC\n");
             }
         }
@@ -388,7 +388,7 @@ static void *capture(void *ptr)
 int capture_start(conf_t *conf)
 {
     unsigned buffer_size = power2(conf->buffer_size);
-    unsigned buffer_bytes = conf->rec_channels * conf->bits_per_sample / 8;
+    unsigned buffer_bytes = conf->rec_channels * sizeof(int16_t);
 
     void *buf = calloc(buffer_size, buffer_bytes);
     if (buf == NULL)
@@ -419,7 +419,7 @@ int capture_start(conf_t *conf)
 int playback_start(conf_t *conf)
 {
     unsigned buffer_size = power2(conf->buffer_size);
-    unsigned buffer_bytes = conf->ref_channels * conf->bits_per_sample / 8;
+    unsigned buffer_bytes = conf->ref_channels * sizeof(int16_t);
 
     void *buf = calloc(buffer_size, buffer_bytes);
     if (buf == NULL)
@@ -478,6 +478,8 @@ int capture_read(void *buf, size_t frames, int timeout_ms)
         usleep(1000);  /* sleep 1ms */
         timeout_ms--;  /* decrement by 1ms */
     }
+    if (PaUtil_GetRingBufferReadAvailable(&g_capture_ringbuffer) < (ring_buffer_size_t)frames)
+        return -1;  /* timeout */
 
     return PaUtil_ReadRingBuffer(&g_capture_ringbuffer, buf, frames);
 }
@@ -502,6 +504,8 @@ int playback_read(void *buf, size_t frames, int timeout_ms)
         usleep(1000);
         timeout_ms--;
     }
+    if (PaUtil_GetRingBufferReadAvailable(&g_playback_ringbuffer) < (ring_buffer_size_t)frames)
+        return -1;  /* timeout */
 
     return PaUtil_ReadRingBuffer(&g_playback_ringbuffer, buf, frames);
 }
