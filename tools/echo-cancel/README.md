@@ -92,8 +92,8 @@ sox input.wav -r 48000 -c 1 -b 16 -e signed -t raw - > /tmp/ec.input
 ### SpeexDSP Tuning Flags
 
 ```text
--r rate   Sample rate (default: 48000)
--c ch     Recording channels (default: 1)
+-r rate   Sample rate (binary default: 16000, service uses 48000)
+-c ch     Recording channels (binary default: 2, service uses 1)
 -d delay  Delay compensation in frames (default: 0)
 -f length AEC filter length in samples (default: 4096, range: 1024-8192)
 -b size   Ring buffer size (default: 16384)
@@ -101,7 +101,7 @@ sox input.wav -r 48000 -c 1 -b 16 -e signed -t raw - > /tmp/ec.input
 -D        Daemonize
 ```
 
-The most useful tuning parameter is `-f` (filter length). Larger values handle more reverberant rooms but use more CPU. Default 4096 = 85ms at 48kHz.
+The installed systemd service runs with `-r 48000 -c 1` to match the WM8960 hardware. The most useful tuning parameter is `-f` (filter length). Larger values handle more reverberant rooms but use more CPU. Default 4096 = 85ms at 48kHz.
 
 ### Service Management
 
