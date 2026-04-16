@@ -3,7 +3,8 @@
 # Armbian Installation Script for Orange Pi Zero 2W (H618)
 #
 # This script installs and configures the WM8960 audio codec support
-# including device tree patching, PLL configuration service, and ALSA settings.
+# including DKMS module build, device tree patching, the boot-time mixer
+# configuration service, and ALSA/PulseAudio/PipeWire settings.
 #
 
 set -e
@@ -84,7 +85,7 @@ check_prerequisites() {
                 for p in "${missing_pkgs[@]}"; do
                     [ "$p" = "$pkg" ] && already=true
                 done
-                $already || missing_pkgs+=("$pkg")
+                [ "$already" = true ] || missing_pkgs+=("$pkg")
             else
                 log_error "Required command '$cmd' not found and no package mapping available"
                 exit 1

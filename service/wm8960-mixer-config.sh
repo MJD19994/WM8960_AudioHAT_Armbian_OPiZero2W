@@ -578,8 +578,14 @@ ensure_dkms_module() {
 # Main execution
 log "Starting WM8960 audio configuration..."
 
-# Ensure DKMS module is built for the running kernel (handles kernel upgrades)
-ensure_dkms_module || log "WARNING: DKMS module check failed — audio may not work"
+# Ensure DKMS module is built for the running kernel (handles kernel upgrades).
+# Exit early on failure — without the module the device/sound card waits below
+# would just time out (~25s) and report a misleading "device not found" error.
+if ! ensure_dkms_module; then
+    log "ERROR: DKMS module check failed — cannot configure audio"
+    log "Run 'dkms status wm8960-audio-hat' and check 'journalctl -u wm8960-audio.service' for details"
+    exit 1
+fi
 
 # Wait for I2C device to be available
 wait_for_device

@@ -27,7 +27,77 @@ Configuration files for ALSA, PipeWire, PulseAudio, and WirePlumber. The install
 | `wm8960-output.conf` | `/usr/share/pulseaudio/alsa-mixer/paths/` | Output path mapping for PulseAudio — maps headphone and speaker volume controls. |
 | `wm8960-input.conf` | `/usr/share/pulseaudio/alsa-mixer/paths/` | Input path mapping for PulseAudio — maps capture volume controls. |
 
-## Manual Setup
+### Echo Cancellation (Optional)
+
+These configs are **not** installed automatically — they are opt-in for voice assistant and conferencing use cases where the speaker and microphone are on the same board.
+
+| File | Installed To | Purpose |
+|------|-------------|---------|
+| `pipewire-echo-cancel.conf` | `/etc/pipewire/pipewire.conf.d/20-echo-cancel.conf` | PipeWire: WebRTC acoustic echo cancellation. Creates virtual echo-cancelled source/sink nodes. |
+| `pulse-echo-cancel.pa` | `/etc/pulse/default.pa.d/echo-cancel.pa` | PulseAudio: WebRTC acoustic echo cancellation via `module-echo-cancel`. |
+
+For bare ALSA echo cancellation, see [`tools/echo-cancel/`](../tools/echo-cancel/) which provides a WebRTC AEC3 engine (default, requires snd-aloop) and a SpeexDSP fallback engine.
+
+## Echo Cancellation Setup
+
+Echo cancellation removes speaker audio from the microphone signal — essential when the speaker and mic are on the same HAT (e.g., ReSpeaker 2-Mic). Without it, voice assistants hear their own TTS output and get confused.
+
+### PipeWire Echo Cancellation
+
+**Prerequisites:**
+```bash
+sudo apt install -y pipewire pipewire-audio pipewire-alsa wireplumber \
+    libspa-0.2-modules libwebrtc-audio-processing-1-3
+```
+
+**Install the config:**
+```bash
+sudo mkdir -p /etc/pipewire/pipewire.conf.d
+sudo cp configs/pipewire-echo-cancel.conf /etc/pipewire/pipewire.conf.d/20-echo-cancel.conf
+systemctl --user restart pipewire wireplumber
+```
+
+**Verify it's working:**
+```bash
+# Check that the echo-cancel nodes exist
+pw-cli list-objects Node | grep -i "echo"
+# You should see: Echo Cancellation Source, Sink, Capture, Playback
+```
+
+**Configure your voice assistant** to use "Echo Cancellation Source" as the microphone input and "Echo Cancellation Sink" as the audio output.
+
+**Node names:** The config assumes PipeWire names the WM8960 devices as `alsa_input.platform-soc_ahub0_mach.stereo-fallback` and `alsa_output.platform-soc_ahub0_mach.stereo-fallback`. If your names differ, check with `pw-cli list-objects Node | grep node.name` and update the `node.target` values in the config file.
+
+### PulseAudio Echo Cancellation
+
+**Prerequisites:**
+```bash
+sudo apt install -y pulseaudio pulseaudio-utils libwebrtc-audio-processing-1-3
+```
+
+**Install the config:**
+```bash
+sudo mkdir -p /etc/pulse/default.pa.d
+sudo cp configs/pulse-echo-cancel.pa /etc/pulse/default.pa.d/echo-cancel.pa
+pulseaudio -k   # auto-restarts with new config
+```
+
+**Verify it's working:**
+```bash
+# Check that the echo-cancel module loaded
+pactl list sources short | grep echo_cancelled
+pactl list sinks short | grep echo_cancelled
+```
+
+**Configure your voice assistant** to use `echo_cancelled_input` as the microphone source and `echo_cancelled_output` as the audio sink.
+
+**Device names:** The config assumes PulseAudio names the WM8960 devices as `alsa_input.platform-soc_ahub0_mach.stereo-fallback` and `alsa_output.platform-soc_ahub0_mach.stereo-fallback`. If your names differ, check with `pactl list sources short` and `pactl list sinks short`, then update the `source_master`/`sink_master` values.
+
+### Bare ALSA Echo Cancellation
+
+For systems without PipeWire or PulseAudio (e.g., classic Rhasspy), see the [`tools/echo-cancel/`](../tools/echo-cancel/) directory which provides a WebRTC AEC3 engine (default, requires snd-aloop) and a SpeexDSP fallback engine that works directly with ALSA.
+
+## Manual Audio Server Setup
 
 The installer handles audio server configuration automatically when PipeWire or PulseAudio is detected at install time. If you install an audio server **after** running the driver installer, follow the steps below.
 

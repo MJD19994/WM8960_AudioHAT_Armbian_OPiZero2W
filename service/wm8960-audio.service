@@ -7,6 +7,8 @@ Requires=sound.target
 Type=oneshot
 ExecStart=/usr/local/bin/wm8960-mixer-config.sh
 RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
