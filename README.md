@@ -319,7 +319,9 @@ Contributions are welcome! Please:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+**Exception:** The optional echo cancellation tool under [`tools/echo-cancel/`](tools/echo-cancel/) is licensed under **GPLv3** (see [tools/echo-cancel/LICENSE-GPL3](tools/echo-cancel/LICENSE-GPL3)), because its SpeexDSP engine is derived from [voice-engine/ec](https://github.com/voice-engine/ec). The GPLv3 license only applies to files inside that directory; the rest of the repository remains MIT.
 
 ## Related Projects
 

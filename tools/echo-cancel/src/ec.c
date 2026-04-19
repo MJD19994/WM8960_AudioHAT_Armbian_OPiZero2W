@@ -228,6 +228,10 @@ int main(int argc, char *argv[])
     sigemptyset(&sig_int_handler.sa_mask);
     sig_int_handler.sa_flags = 0;
     sigaction(SIGINT, &sig_int_handler, NULL);
+    sigaction(SIGTERM, &sig_int_handler, NULL);
+    // systemctl stop sends SIGTERM; without this the service waits for
+    // TimeoutStopSec then gets SIGKILL'd, leaving FIFO and ALSA state dirty.
+    signal(SIGPIPE, SIG_IGN);
 
     echo_state = speex_echo_state_init_mc(frame_size,
                                           config.filter_length,
@@ -237,7 +241,8 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to initialize Speex echo canceller\n");
         exit(1);
     }
-    speex_echo_ctl(echo_state, SPEEX_ECHO_SET_SAMPLING_RATE, &(config.rate));
+    spx_int32_t sr = (spx_int32_t)config.rate;
+    speex_echo_ctl(echo_state, SPEEX_ECHO_SET_SAMPLING_RATE, &sr);
 
     if (playback_start(&config) < 0) {
         fprintf(stderr, "Failed to start playback\n");

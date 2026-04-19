@@ -20,6 +20,7 @@
 #include <cstring>
 #include <csignal>
 #include <cerrno>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -69,16 +70,30 @@ static int alsa_set_params(snd_pcm_t *handle, unsigned rate, unsigned channels)
         return -1;
     }
     unsigned actual = rate;
-    snd_pcm_hw_params_set_rate_near(handle, hw, &actual, 0);
-    if (actual != rate) fprintf(stderr, "Warning: rate %u → %u\n", rate, actual);
+    if ((err = snd_pcm_hw_params_set_rate_near(handle, hw, &actual, 0)) < 0) {
+        fprintf(stderr, "ALSA set_rate %u failed: %s\n", rate, snd_strerror(err));
+        return -1;
+    }
+    // frame_size and WebRTC StreamConfig depend on the exact rate — any
+    // mismatch silently desyncs the 10ms processing loop.
+    if (actual != rate) {
+        fprintf(stderr, "ALSA rate mismatch: requested %u, got %u\n", rate, actual);
+        return -1;
+    }
     if ((err = snd_pcm_hw_params_set_channels(handle, hw, channels)) < 0) {
         fprintf(stderr, "ALSA set_channels %u failed: %s\n", channels, snd_strerror(err));
         return -1;
     }
     snd_pcm_uframes_t period = rate / 100;  // 10ms
-    snd_pcm_hw_params_set_period_size_near(handle, hw, &period, 0);
+    if ((err = snd_pcm_hw_params_set_period_size_near(handle, hw, &period, 0)) < 0) {
+        fprintf(stderr, "ALSA set_period_size failed: %s\n", snd_strerror(err));
+        return -1;
+    }
     snd_pcm_uframes_t buffer = period * 4;
-    snd_pcm_hw_params_set_buffer_size_near(handle, hw, &buffer);
+    if ((err = snd_pcm_hw_params_set_buffer_size_near(handle, hw, &buffer)) < 0) {
+        fprintf(stderr, "ALSA set_buffer_size failed: %s\n", snd_strerror(err));
+        return -1;
+    }
     err = snd_pcm_hw_params(handle, hw);
     if (err < 0) {
         fprintf(stderr, "ALSA hw_params failed: %s\n", snd_strerror(err));
@@ -97,6 +112,44 @@ static void alsa_recover(snd_pcm_t *h, int err)
         if (snd_pcm_prepare(h) < 0)
             fprintf(stderr, "alsa_recover: prepare failed after suspend\n");
     }
+}
+
+// Handle short writes: snd_pcm_writei can return fewer frames than requested
+// (signals, underruns). Dropping the tail causes speaker underruns and AEC
+// reference misalignment, so loop until every frame is written.
+static int write_all_pcm(snd_pcm_t *pcm, const int16_t *buf,
+                         snd_pcm_uframes_t frames, unsigned channels)
+{
+    snd_pcm_uframes_t done = 0;
+    while (done < frames && !g_quit) {
+        snd_pcm_sframes_t n = snd_pcm_writei(pcm, buf + done * channels,
+                                             frames - done);
+        if (n < 0) {
+            if (n != -EPIPE && n != -ESTRPIPE)
+                return -1;
+            alsa_recover(pcm, (int)n);
+            continue;
+        }
+        if (n == 0) {
+            usleep(1000);
+            continue;
+        }
+        done += (snd_pcm_uframes_t)n;
+    }
+    return done == frames ? 0 : -1;
+}
+
+// Service runs as root — use O_NOFOLLOW + 0600 so a symlink planted at the
+// debug path can't clobber arbitrary files.
+static FILE *open_debug_file(const char *path)
+{
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0)
+        return nullptr;
+    FILE *fp = fdopen(fd, "wb");
+    if (!fp)
+        close(fd);
+    return fp;
 }
 
 int main(int argc, char *argv[])
@@ -239,9 +292,9 @@ int main(int argc, char *argv[])
     // Debug files
     FILE *fp_rec = nullptr, *fp_far = nullptr, *fp_out = nullptr;
     if (save) {
-        fp_rec = fopen("/tmp/recording.raw", "wb");
-        fp_far = fopen("/tmp/playback.raw", "wb");
-        fp_out = fopen("/tmp/out.raw", "wb");
+        fp_rec = open_debug_file("/tmp/recording.raw");
+        fp_far = open_debug_file("/tmp/playback.raw");
+        fp_out = open_debug_file("/tmp/out.raw");
         if (!fp_rec || !fp_far || !fp_out) {
             fprintf(stderr, "Warning: failed to open debug files, disabling debug recording\n");
             if (fp_rec) fclose(fp_rec);
@@ -261,7 +314,7 @@ int main(int argc, char *argv[])
     // Pre-fill speaker with silence to start the stream
     memset(spk_stereo, 0, frame_size * 2 * sizeof(int16_t));
     for (int i = 0; i < 4; i++)
-        snd_pcm_writei(pcm_spk, spk_stereo, frame_size);
+        write_all_pcm(pcm_spk, spk_stereo, frame_size, 2);
 
     // The mic (dsnoop) drives the loop timing — it always has data at a
     // steady rate. The loopback reference is read non-blocking so it
@@ -304,22 +357,14 @@ int main(int argc, char *argv[])
             spk_stereo[i * 2]     = ref_buf[i];
             spk_stereo[i * 2 + 1] = ref_buf[i];
         }
-        ssize_t sw = snd_pcm_writei(pcm_spk, spk_stereo, frame_size);
-        if (sw < 0) {
-            alsa_recover(pcm_spk, sw);
-            snd_pcm_writei(pcm_spk, spk_stereo, frame_size);
-        }
+        write_all_pcm(pcm_spk, spk_stereo, frame_size, 2);
 
         // 5. Process mic through AEC
         apm->set_stream_delay_ms(delay_ms);
         apm->ProcessStream(mic_mono, mono_cfg, mono_cfg, out_buf);
 
         // 6. Write processed audio to output loopback
-        ssize_t ow = snd_pcm_writei(pcm_app_out, out_buf, frame_size);
-        if (ow < 0) {
-            alsa_recover(pcm_app_out, ow);
-            snd_pcm_writei(pcm_app_out, out_buf, frame_size);
-        }
+        write_all_pcm(pcm_app_out, out_buf, frame_size, 1);
 
         // 7. Debug files
         if (fp_rec) {
