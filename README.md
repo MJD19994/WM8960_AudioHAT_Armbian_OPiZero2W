@@ -181,8 +181,9 @@ WM8960_AudioHAT_Armbian_OPiZero2W/
 │   ├── pulse-echo-cancel.pa           # PulseAudio echo cancellation config
 │   └── alsa-aec.conf                  # ALSA loopback AEC virtual device
 ├── tools/                              # Optional tools
-│   └── echo-cancel/                   # Acoustic echo cancellation
+│   └── echo-cancel/                   # Acoustic echo cancellation (GPLv3)
 │       ├── install.sh                 # Installer (WebRTC or SpeexDSP)
+│       ├── LICENSE-GPL3               # GPLv3 license for this directory
 │       ├── src/ec_webrtc.cpp          # WebRTC AEC3 engine (~30dB+)
 │       ├── src/ec.c                   # SpeexDSP engine (~15dB)
 │       └── README.md                  # Echo canceller documentation
@@ -321,7 +322,7 @@ Contributions are welcome! Please:
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
-**Exception:** The optional echo cancellation tool under [`tools/echo-cancel/`](tools/echo-cancel/) is licensed under **GPLv3** (see [tools/echo-cancel/LICENSE-GPL3](tools/echo-cancel/LICENSE-GPL3)), because its SpeexDSP engine is derived from [voice-engine/ec](https://github.com/voice-engine/ec). The GPLv3 license only applies to files inside that directory; the rest of the repository remains MIT.
+**Exception:** The optional echo cancellation tool under [`tools/echo-cancel/`](tools/echo-cancel/) is licensed under **GPLv3** — see [tools/echo-cancel/LICENSE-GPL3](tools/echo-cancel/LICENSE-GPL3). Both engines (SpeexDSP in `ec.c`/`audio.c`/`fifo.c` and WebRTC AEC3 in `ec_webrtc.cpp`) ship under GPLv3 for consistency: the SpeexDSP engine inherits it from [voice-engine/ec](https://github.com/voice-engine/ec), and the WebRTC engine is licensed GPLv3 by our choice. The vendored PortAudio ring buffer (`pa_ringbuffer.*`, `pa_memorybarrier.h`) retains its original BSD-style license — see file headers. The `libwebrtc-audio-processing` library linked by the WebRTC engine is BSD-licensed and compatible with GPLv3. The GPLv3 terms apply only to files inside `tools/echo-cancel/`; the rest of the repository remains MIT.
 
 ## Related Projects
 

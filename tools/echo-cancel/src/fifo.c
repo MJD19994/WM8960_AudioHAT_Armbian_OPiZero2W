@@ -119,6 +119,11 @@ int fifo_setup(conf_t *conf)
         return -1;
     }
 
+    // 0666 is intentional: the service runs as root, but unprivileged user
+    // apps (voice assistants, audio tools) need to read /tmp/ec.output and
+    // write /tmp/ec.input. On a single-user embedded board this is an
+    // accepted trade-off; a future hardening option is 0660 + a dedicated
+    // audio group the installer adds the user to.
     if (stat(conf->out_fifo, &st) != 0) {
         if (mkfifo(conf->out_fifo, 0666) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->out_fifo, strerror(errno));

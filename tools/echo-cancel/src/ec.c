@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <time.h>
+#include <limits.h>
 #include <sys/stat.h>
 
 #include <speex/speex_echo.h>
@@ -17,18 +18,19 @@
 #include "conf.h"
 #include "audio.h"
 
-// Parse a non-negative integer from optarg; abort on garbage, negatives, or overflow.
-// atoi silently turns "-1" into a huge unsigned after assignment, and "abc" into 0.
-static long parse_nonneg(const char *s, const char *name)
+// Parse a non-negative integer from optarg; abort on garbage, negatives, or
+// values above UINT_MAX (which would silently truncate when callers cast to
+// unsigned). atoi silently turns "-1" into a huge unsigned and "abc" into 0.
+static unsigned parse_nonneg(const char *s, const char *name)
 {
     char *end;
     errno = 0;
     long v = strtol(s, &end, 10);
-    if (errno != 0 || end == s || *end != '\0' || v < 0) {
-        fprintf(stderr, "Invalid value for -%s: '%s' (must be a non-negative integer)\n", name, s);
+    if (errno != 0 || end == s || *end != '\0' || v < 0 || v > UINT_MAX) {
+        fprintf(stderr, "Invalid value for -%s: '%s' (must be 0..%u)\n", name, s, UINT_MAX);
         exit(1);
     }
-    return v;
+    return (unsigned)v;
 }
 
 const char *usage =
@@ -101,10 +103,10 @@ int main(int argc, char *argv[])
         switch (opt)
         {
         case 'b':
-            config.buffer_size = (unsigned)parse_nonneg(optarg, "b");
+            config.buffer_size = parse_nonneg(optarg, "b");
             break;
         case 'c':
-            config.rec_channels = (unsigned)parse_nonneg(optarg, "c");
+            config.rec_channels = parse_nonneg(optarg, "c");
             config.out_channels = config.rec_channels;
             break;
         case 'd':
@@ -114,7 +116,7 @@ int main(int argc, char *argv[])
             daemonize = 1;
             break;
         case 'f':
-            config.filter_length = (unsigned)parse_nonneg(optarg, "f");
+            config.filter_length = parse_nonneg(optarg, "f");
             break;
         case 'h':
             printf(usage, argv[0]);
@@ -126,7 +128,7 @@ int main(int argc, char *argv[])
             config.out_pcm = optarg;
             break;
         case 'r':
-            config.rate = (unsigned)parse_nonneg(optarg, "r");
+            config.rate = parse_nonneg(optarg, "r");
             break;
         case 's':
             save_audio = 1;
@@ -281,7 +283,7 @@ int main(int argc, char *argv[])
     printf("skip frames %d\n", skipped);
 
     time_t last_short_warn = 0;
-    unsigned short_write_count = 0;
+    unsigned int short_write_count = 0;
 
     while (!g_is_quit)
     {

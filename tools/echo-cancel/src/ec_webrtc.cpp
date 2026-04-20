@@ -192,8 +192,8 @@ int main(int argc, char *argv[])
             break;
         case 'd':
             delay_ms = atoi(optarg);
-            if (delay_ms < 0) {
-                fprintf(stderr, "Invalid delay %d — must be non-negative\n", delay_ms);
+            if (delay_ms < 0 || delay_ms > 500) {
+                fprintf(stderr, "Invalid delay %d — must be 0..500ms (AEC3 recommends 0)\n", delay_ms);
                 return 1;
             }
             break;
@@ -330,8 +330,10 @@ int main(int argc, char *argv[])
 
     // Pre-fill speaker with silence to start the stream
     memset(spk_stereo, 0, frame_size * 2 * sizeof(int16_t));
-    for (int i = 0; i < 4; i++)
-        write_all_pcm(pcm_spk, spk_stereo, frame_size, 2);
+    for (int i = 0; i < 4; i++) {
+        if (write_all_pcm(pcm_spk, spk_stereo, frame_size, 2) < 0)
+            fprintf(stderr, "Warning: speaker prefill frame %d failed\n", i);
+    }
 
     // The mic (dsnoop) drives the loop timing — it always has data at a
     // steady rate. The loopback reference is read non-blocking so it
@@ -386,7 +388,10 @@ int main(int argc, char *argv[])
             spk_stereo[i * 2]     = ref_buf[i];
             spk_stereo[i * 2 + 1] = ref_buf[i];
         }
-        write_all_pcm(pcm_spk, spk_stereo, frame_size, 2);
+        if (write_all_pcm(pcm_spk, spk_stereo, frame_size, 2) < 0) {
+            fprintf(stderr, "Speaker write failed unrecoverably — exiting\n");
+            break;
+        }
 
         // 5. Process mic through AEC — silence out_buf on error to avoid
         // writing stale/uninitialized audio downstream.
@@ -395,7 +400,10 @@ int main(int argc, char *argv[])
             memset(out_buf, 0, frame_size * sizeof(int16_t));
 
         // 6. Write processed audio to output loopback
-        write_all_pcm(pcm_app_out, out_buf, frame_size, 1);
+        if (write_all_pcm(pcm_app_out, out_buf, frame_size, 1) < 0) {
+            fprintf(stderr, "App-out write failed unrecoverably — exiting\n");
+            break;
+        }
 
         // 7. Debug files
         if (fp_rec) {
