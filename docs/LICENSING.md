@@ -15,7 +15,7 @@ This document expands on the [License section in the README](../README.md#licens
 
 ## Compatibility notes
 
-- **GPL-2.0-only and GPLv3 are not upgrade-compatible.** This is fine in practice because the DKMS module and the echo canceller are distributed as separate binaries in separate directories with separate build systems — they never combine into a single program. Do not attempt to statically link echo-cancel code into the kernel module.
+- **GPL-2.0-only and GPLv3 cannot be combined in a single binary.** This is fine in practice because the DKMS module and the echo canceller are distributed as separate binaries in separate directories with separate build systems — they never combine into a single program. Do not attempt to statically link echo-cancel code into the kernel module.
 - **BSD/MIT → GPL is one-way.** The PortAudio ring buffer files are BSD-style (GPL-compatible) and can legally sit inside the GPLv3 `tools/echo-cancel/` directory.
 - **Kernel module GPL requirement.** The DKMS module uses `MODULE_LICENSE("GPL")`, which is required to access `EXPORT_SYMBOL_GPL` kernel symbols used by the ASoC subsystem.
 

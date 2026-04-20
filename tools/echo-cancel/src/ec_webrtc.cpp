@@ -339,6 +339,9 @@ int main(int argc, char *argv[])
     }
     if (prefill_failures == 4) {
         fprintf(stderr, "Speaker prefill completely failed — exiting\n");
+        if (fp_rec) fclose(fp_rec);
+        if (fp_far) fclose(fp_far);
+        if (fp_out) fclose(fp_out);
         free(ref_buf); free(ref_aec); free(spk_stereo);
         free(mic_stereo); free(mic_mono); free(out_buf);
         delete apm;
@@ -353,6 +356,9 @@ int main(int argc, char *argv[])
     err = snd_pcm_nonblock(pcm_app_in, 1);
     if (err < 0) {
         fprintf(stderr, "app_in nonblock failed: %s\n", snd_strerror(err));
+        if (fp_rec) fclose(fp_rec);
+        if (fp_far) fclose(fp_far);
+        if (fp_out) fclose(fp_out);
         free(ref_buf); free(ref_aec); free(spk_stereo);
         free(mic_stereo); free(mic_mono); free(out_buf);
         delete apm;
