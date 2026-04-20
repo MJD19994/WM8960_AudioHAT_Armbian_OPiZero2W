@@ -178,8 +178,20 @@ int main(int argc, char *argv[])
         case 'm': mic_dev = optarg; break;
         case 'p': spk_dev = optarg; break;
         case 'r': rate = atoi(optarg); break;
-        case 'n': ns_level = atoi(optarg); break;
-        case 'd': delay_ms = atoi(optarg); break;
+        case 'n':
+            ns_level = atoi(optarg);
+            if (ns_level < 0 || ns_level > 4) {
+                fprintf(stderr, "Invalid noise suppression level %d — must be 0..4\n", ns_level);
+                return 1;
+            }
+            break;
+        case 'd':
+            delay_ms = atoi(optarg);
+            if (delay_ms < 0) {
+                fprintf(stderr, "Invalid delay %d — must be non-negative\n", delay_ms);
+                return 1;
+            }
+            break;
         case 'g': agc = 1; break;
         case 'M': mobile_mode = 1; break;
         case 'H': highpass = 0; break;
@@ -201,7 +213,7 @@ int main(int argc, char *argv[])
         if (pid < 0) { perror("fork"); return 1; }
         if (pid > 0) return 0;
         umask(022);
-        setsid();
+        if (setsid() < 0) { perror("setsid"); return 1; }
         if (chdir("/") < 0) { perror("chdir"); return 1; }
         if (!freopen("/dev/null", "r", stdin)) {
             perror("freopen stdin");
@@ -319,7 +331,16 @@ int main(int argc, char *argv[])
     // The mic (dsnoop) drives the loop timing — it always has data at a
     // steady rate. The loopback reference is read non-blocking so it
     // doesn't stall the mic reads and cause temporal misalignment.
-    snd_pcm_nonblock(pcm_app_in, 1);
+    // If nonblock fails, the -EAGAIN check in the read loop becomes
+    // meaningless and mic processing can stall, so treat it as fatal.
+    err = snd_pcm_nonblock(pcm_app_in, 1);
+    if (err < 0) {
+        fprintf(stderr, "app_in nonblock failed: %s\n", snd_strerror(err));
+        free(ref_buf); free(ref_aec); free(spk_stereo);
+        free(mic_stereo); free(mic_mono); free(out_buf);
+        delete apm;
+        goto fail4;
+    }
 
     while (!g_quit)
     {
@@ -348,9 +369,12 @@ int main(int argc, char *argv[])
             memset(ref_buf + ar, 0, (frame_size - ar) * sizeof(int16_t));
         }
 
-        // 3. Feed reference to AEC (copy — speaker gets unmodified audio)
+        // 3. Feed reference to AEC (copy — speaker gets unmodified audio).
+        // Silence the reference on WebRTC error so stale buffer contents
+        // don't pollute the next AEC cycle.
         memcpy(ref_aec, ref_buf, frame_size * sizeof(int16_t));
-        apm->ProcessReverseStream(ref_aec, mono_cfg, mono_cfg, ref_aec);
+        if (apm->ProcessReverseStream(ref_aec, mono_cfg, mono_cfg, ref_aec) != 0)
+            memset(ref_aec, 0, frame_size * sizeof(int16_t));
 
         // 4. Write to speaker (mono → stereo duplication)
         for (unsigned i = 0; i < frame_size; i++) {
@@ -359,9 +383,11 @@ int main(int argc, char *argv[])
         }
         write_all_pcm(pcm_spk, spk_stereo, frame_size, 2);
 
-        // 5. Process mic through AEC
+        // 5. Process mic through AEC — silence out_buf on error to avoid
+        // writing stale/uninitialized audio downstream.
         apm->set_stream_delay_ms(delay_ms);
-        apm->ProcessStream(mic_mono, mono_cfg, mono_cfg, out_buf);
+        if (apm->ProcessStream(mic_mono, mono_cfg, mono_cfg, out_buf) != 0)
+            memset(out_buf, 0, frame_size * sizeof(int16_t));
 
         // 6. Write processed audio to output loopback
         write_all_pcm(pcm_app_out, out_buf, frame_size, 1);
