@@ -125,6 +125,11 @@ static int write_all_pcm(snd_pcm_t *pcm, const int16_t *buf,
         snd_pcm_sframes_t n = snd_pcm_writei(pcm, buf + done * channels,
                                              frames - done);
         if (n < 0) {
+            // EINTR = signal interrupt during blocking write, retry.
+            // EPIPE/ESTRPIPE = underrun/suspend, recover via alsa_recover.
+            // Anything else is unrecoverable.
+            if (n == -EINTR)
+                continue;
             if (n != -EPIPE && n != -ESTRPIPE)
                 return -1;
             alsa_recover(pcm, (int)n);
