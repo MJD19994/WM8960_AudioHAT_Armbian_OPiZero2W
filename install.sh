@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
 #
 # Armbian Installation Script for Orange Pi Zero 2W (H618)
 #

@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
 #
 # WM8960 Audio HAT Mixer Configuration Script (Armbian)
 #

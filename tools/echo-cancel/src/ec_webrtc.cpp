@@ -330,9 +330,19 @@ int main(int argc, char *argv[])
 
     // Pre-fill speaker with silence to start the stream
     memset(spk_stereo, 0, frame_size * 2 * sizeof(int16_t));
+    int prefill_failures = 0;
     for (int i = 0; i < 4; i++) {
-        if (write_all_pcm(pcm_spk, spk_stereo, frame_size, 2) < 0)
+        if (write_all_pcm(pcm_spk, spk_stereo, frame_size, 2) < 0) {
             fprintf(stderr, "Warning: speaker prefill frame %d failed\n", i);
+            prefill_failures++;
+        }
+    }
+    if (prefill_failures == 4) {
+        fprintf(stderr, "Speaker prefill completely failed — exiting\n");
+        free(ref_buf); free(ref_aec); free(spk_stereo);
+        free(mic_stereo); free(mic_mono); free(out_buf);
+        delete apm;
+        goto fail4;
     }
 
     // The mic (dsnoop) drives the loop timing — it always has data at a

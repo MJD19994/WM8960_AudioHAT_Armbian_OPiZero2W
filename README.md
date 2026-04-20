@@ -320,9 +320,17 @@ Contributions are welcome! Please:
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+This repository contains code under three licenses, reflecting the origin of each component. The split is permitted under the GPL's aggregation clause because the components are separate binaries that never combine into a single program.
 
-**Exception:** The optional echo cancellation tool under [`tools/echo-cancel/`](tools/echo-cancel/) is licensed under **GPLv3** — see [tools/echo-cancel/LICENSE-GPL3](tools/echo-cancel/LICENSE-GPL3). Both engines (SpeexDSP in `ec.c`/`audio.c`/`fifo.c` and WebRTC AEC3 in `ec_webrtc.cpp`) ship under GPLv3 for consistency: the SpeexDSP engine inherits it from [voice-engine/ec](https://github.com/voice-engine/ec), and the WebRTC engine is licensed GPLv3 by our choice. The vendored PortAudio ring buffer (`pa_ringbuffer.*`, `pa_memorybarrier.h`) retains its original BSD-style license — see file headers. The `libwebrtc-audio-processing` library linked by the WebRTC engine is BSD-licensed and compatible with GPLv3. The GPLv3 terms apply only to files inside `tools/echo-cancel/`; the rest of the repository remains MIT.
+| Component | License | Why |
+|-----------|---------|-----|
+| Scripts, configs, overlays, service files, docs, and all files at the repo root | **MIT** — see [LICENSE](LICENSE) | Original work, kept permissive for maximum reuse |
+| [`dkms/`](dkms/) — kernel module source | **GPL-2.0-only** | Derived from the mainline Linux kernel `wm8960.c` codec driver (Copyright 2007–2011 Wolfson Microelectronics); kernel modules inherit the kernel's license |
+| [`tools/echo-cancel/`](tools/echo-cancel/) — optional echo canceller | **GPLv3** — see [tools/echo-cancel/LICENSE-GPL3](tools/echo-cancel/LICENSE-GPL3) | SpeexDSP engine inherits GPLv3 from [voice-engine/ec](https://github.com/voice-engine/ec); WebRTC engine is GPLv3 by our choice for consistency. The vendored PortAudio ring buffer (`pa_ringbuffer.*`, `pa_memorybarrier.h`) retains its original BSD-style license — see file headers. |
+
+If you only use the audio driver, you're working with MIT + GPL-2.0-only (standard kernel-module licensing). If you additionally install the echo canceller, GPLv3 applies to that binary only.
+
+For per-file details, compatibility notes, and downstream-user guidance, see [docs/LICENSING.md](docs/LICENSING.md).
 
 ## Related Projects
 
