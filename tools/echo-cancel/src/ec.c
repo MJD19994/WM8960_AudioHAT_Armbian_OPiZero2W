@@ -34,12 +34,19 @@ static unsigned parse_nonneg(const char *s, const char *name)
 }
 
 // Open a debug file safely: service runs as root, so O_NOFOLLOW + 0600 keeps
-// a symlink planted at the path from clobbering arbitrary files.
+// a symlink planted at the path from clobbering arbitrary files. The extra
+// S_ISREG check rejects pre-planted FIFOs or device nodes — otherwise an
+// attacker could read our debug audio through a FIFO they own.
 static FILE *open_debug_file(const char *path)
 {
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (fd < 0)
         return NULL;
+    struct stat st;
+    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
+        close(fd);
+        return NULL;
+    }
     FILE *fp = fdopen(fd, "wb");
     if (!fp)
         close(fd);

@@ -159,12 +159,19 @@ static int write_all_pcm(snd_pcm_t *pcm, const int16_t *buf,
 }
 
 // Service runs as root — use O_NOFOLLOW + 0600 so a symlink planted at the
-// debug path can't clobber arbitrary files.
+// debug path can't clobber arbitrary files. The extra S_ISREG check rejects
+// pre-planted FIFOs or device nodes — otherwise an attacker could read our
+// debug audio through a FIFO they own.
 static FILE *open_debug_file(const char *path)
 {
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (fd < 0)
         return nullptr;
+    struct stat st;
+    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
+        close(fd);
+        return nullptr;
+    }
     FILE *fp = fdopen(fd, "wb");
     if (!fp)
         close(fd);
