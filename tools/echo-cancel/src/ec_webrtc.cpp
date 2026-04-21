@@ -55,6 +55,20 @@ static const char *usage_text =
 static volatile sig_atomic_t g_quit = 0;
 static void signal_handler(int /*sig*/) { g_quit = 1; }
 
+// Parse a strict integer from optarg; abort on garbage, trailing junk, or
+// overflow. atoi silently accepts "abc" as 0 and "48000junk" as 48000.
+static long parse_long(const char *s, const char *name)
+{
+    char *end;
+    errno = 0;
+    long v = strtol(s, &end, 10);
+    if (errno != 0 || end == s || *end != '\0') {
+        fprintf(stderr, "Invalid value for -%s: '%s' (must be an integer)\n", name, s);
+        exit(1);
+    }
+    return v;
+}
+
 static int alsa_set_params(snd_pcm_t *handle, unsigned rate, unsigned channels)
 {
     int err;
@@ -182,16 +196,16 @@ int main(int argc, char *argv[])
         case 'o': app_out = optarg; break;
         case 'm': mic_dev = optarg; break;
         case 'p': spk_dev = optarg; break;
-        case 'r': rate = atoi(optarg); break;
+        case 'r': rate = (unsigned)parse_long(optarg, "r"); break;
         case 'n':
-            ns_level = atoi(optarg);
+            ns_level = (int)parse_long(optarg, "n");
             if (ns_level < 0 || ns_level > 4) {
                 fprintf(stderr, "Invalid noise suppression level %d — must be 0..4\n", ns_level);
                 return 1;
             }
             break;
         case 'd':
-            delay_ms = atoi(optarg);
+            delay_ms = (int)parse_long(optarg, "d");
             if (delay_ms < 0 || delay_ms > 500) {
                 fprintf(stderr, "Invalid delay %d — must be 0..500ms (AEC3 recommends 0)\n", delay_ms);
                 return 1;

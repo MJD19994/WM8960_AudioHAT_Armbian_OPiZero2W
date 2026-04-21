@@ -33,11 +33,24 @@ static unsigned parse_nonneg(const char *s, const char *name)
     return (unsigned)v;
 }
 
+// Open a debug file safely: service runs as root, so O_NOFOLLOW + 0600 keeps
+// a symlink planted at the path from clobbering arbitrary files.
+static FILE *open_debug_file(const char *path)
+{
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0)
+        return NULL;
+    FILE *fp = fdopen(fd, "wb");
+    if (!fp)
+        close(fd);
+    return fp;
+}
+
 const char *usage =
     "Usage:\n %s [options]\n"
     "Options:\n"
-    " -i PCM            playback PCM (default)\n"
-    " -o PCM            capture PCM (default)\n"
+    " -i PCM            capture PCM (default)\n"
+    " -o PCM            playback PCM (default)\n"
     " -r rate           sample rate (16000)\n"
     " -c channels       recording channels (2)\n"
     " -b size           buffer size (262144)\n"
@@ -215,9 +228,9 @@ int main(int argc, char *argv[])
 
     if (save_audio)
     {
-        fp_far = fopen("/tmp/playback.raw", "wb");
-        fp_rec = fopen("/tmp/recording.raw", "wb");
-        fp_out = fopen("/tmp/out.raw", "wb");
+        fp_far = open_debug_file("/tmp/playback.raw");
+        fp_rec = open_debug_file("/tmp/recording.raw");
+        fp_out = open_debug_file("/tmp/out.raw");
 
         if (fp_far == NULL || fp_rec == NULL || fp_out == NULL)
         {

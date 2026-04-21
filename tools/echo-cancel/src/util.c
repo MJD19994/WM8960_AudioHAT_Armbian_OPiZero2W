@@ -3,7 +3,11 @@ unsigned power2(unsigned v)
 {
     if (v == 0)
         return 1;
-    // Clamp to max power of 2 representable in 32 bits; 2^32 would overflow
+    // 2^32 is not representable in 32-bit unsigned. For v > 0x80000000 the
+    // next power of two doesn't fit, so we clamp to 0x80000000 — callers
+    // requesting a larger size get a smaller buffer silently. Callers must
+    // bound input upstream (CLI validation handles this; realistic ring
+    // buffer sizes are <1 MiB).
     if (v > 0x80000000u)
         return 0x80000000u;
     v--;

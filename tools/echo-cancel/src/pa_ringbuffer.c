@@ -65,7 +65,8 @@
  */
 ring_buffer_size_t PaUtil_InitializeRingBuffer( PaUtilRingBuffer *rbuf, ring_buffer_size_t elementSizeBytes, ring_buffer_size_t elementCount, void *dataPtr )
 {
-    if( ((elementCount-1) & elementCount) != 0) return -1; /* Not Power of two. */
+    if( elementSizeBytes <= 0 || elementCount <= 0 ||
+        ((elementCount-1) & elementCount) != 0) return -1; /* Zero-size or not power of two. */
     rbuf->bufferSize = elementCount;
     rbuf->buffer = (char *)dataPtr;
     PaUtil_FlushRingBuffer( rbuf );
