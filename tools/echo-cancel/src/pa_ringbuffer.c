@@ -201,6 +201,8 @@ ring_buffer_size_t PaUtil_WriteRingBuffer( PaUtilRingBuffer *rbuf, const void *d
 {
     ring_buffer_size_t size1, size2, numWritten;
     void *data1, *data2;
+    if( rbuf == NULL || (elementCount > 0 && data == NULL) )
+        return -1;
     numWritten = PaUtil_GetRingBufferWriteRegions( rbuf, elementCount, &data1, &size1, &data2, &size2 );
     /* memcpy with zero length and a NULL pointer is UB in C17 and earlier;
      * bail out before touching memcpy if the buffer is full. */
@@ -227,6 +229,8 @@ ring_buffer_size_t PaUtil_ReadRingBuffer( PaUtilRingBuffer *rbuf, void *data, ri
 {
     ring_buffer_size_t size1, size2, numRead;
     void *data1, *data2;
+    if( rbuf == NULL || (elementCount > 0 && data == NULL) )
+        return -1;
     numRead = PaUtil_GetRingBufferReadRegions( rbuf, elementCount, &data1, &size1, &data2, &size2 );
     if( numRead == 0 )
         return 0;
