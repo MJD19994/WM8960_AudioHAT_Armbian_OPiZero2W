@@ -65,8 +65,9 @@
  */
 ring_buffer_size_t PaUtil_InitializeRingBuffer( PaUtilRingBuffer *rbuf, ring_buffer_size_t elementSizeBytes, ring_buffer_size_t elementCount, void *dataPtr )
 {
-    if( elementSizeBytes <= 0 || elementCount <= 0 ||
-        ((elementCount-1) & elementCount) != 0) return -1; /* Zero-size or not power of two. */
+    if( rbuf == NULL || dataPtr == NULL ||
+        elementSizeBytes <= 0 || elementCount <= 0 ||
+        ((elementCount-1) & elementCount) != 0) return -1; /* NULL, zero-size, or not power of two. */
     rbuf->bufferSize = elementCount;
     rbuf->buffer = (char *)dataPtr;
     PaUtil_FlushRingBuffer( rbuf );
@@ -201,6 +202,10 @@ ring_buffer_size_t PaUtil_WriteRingBuffer( PaUtilRingBuffer *rbuf, const void *d
     ring_buffer_size_t size1, size2, numWritten;
     void *data1, *data2;
     numWritten = PaUtil_GetRingBufferWriteRegions( rbuf, elementCount, &data1, &size1, &data2, &size2 );
+    /* memcpy with zero length and a NULL pointer is UB in C17 and earlier;
+     * bail out before touching memcpy if the buffer is full. */
+    if( numWritten == 0 )
+        return 0;
     if( size2 > 0 )
     {
 
@@ -223,6 +228,8 @@ ring_buffer_size_t PaUtil_ReadRingBuffer( PaUtilRingBuffer *rbuf, void *data, ri
     ring_buffer_size_t size1, size2, numRead;
     void *data1, *data2;
     numRead = PaUtil_GetRingBufferReadRegions( rbuf, elementCount, &data1, &size1, &data2, &size2 );
+    if( numRead == 0 )
+        return 0;
     if( size2 > 0 )
     {
         memcpy( data, data1, size1*rbuf->elementSizeBytes );
