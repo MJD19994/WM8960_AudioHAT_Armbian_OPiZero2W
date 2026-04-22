@@ -10,7 +10,7 @@
 
 CC := gcc
 CXX := g++
-CFLAGS += -Isrc -Wall -std=gnu99 -O3 -MMD -MP
+CFLAGS += -Isrc -Wall -std=gnu11 -O3 -MMD -MP
 CXXFLAGS += -Isrc -Wall -std=c++17 -O3 -MMD -MP
 WEBRTC_CXXFLAGS = $(shell pkg-config --cflags webrtc-audio-processing-1)
 LDLIBS_SPEEX := -ldl -lm -lrt -lpthread -lasound $(shell pkg-config --libs speexdsp)
