@@ -2,14 +2,19 @@
 # Two implementations:
 #   wm8960-ec        — SpeexDSP, FIFO-based (works without snd-aloop)
 #   wm8960-ec-webrtc — WebRTC AEC3, loopback-based (requires snd-aloop)
+#
+# The default `all` target builds both, so bare `make` requires both dev
+# packages: libspeexdsp-dev and libwebrtc-audio-processing-dev. Use
+# `make speex` or `make webrtc` to build only one; install.sh does this
+# automatically based on the user's chosen engine.
 
 CC := gcc
 CXX := g++
 CFLAGS += -Isrc -Wall -std=gnu99 -O3 -MMD -MP
 CXXFLAGS += -Isrc -Wall -std=c++17 -O3 -MMD -MP
-WEBRTC_CXXFLAGS = $(shell pkg-config --cflags webrtc-audio-processing-1 2>/dev/null)
+WEBRTC_CXXFLAGS = $(shell pkg-config --cflags webrtc-audio-processing-1)
 LDLIBS_SPEEX := -ldl -lm -lrt -lpthread -lasound $(shell pkg-config --libs speexdsp)
-LDLIBS_WEBRTC = -lasound $(shell pkg-config --libs webrtc-audio-processing-1 2>/dev/null)
+LDLIBS_WEBRTC = -lasound $(shell pkg-config --libs webrtc-audio-processing-1)
 
 SRCDIR := src
 

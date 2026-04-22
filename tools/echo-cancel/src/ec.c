@@ -81,10 +81,14 @@ extern int fifo_write(void *buf, size_t frames);
 static void int_handler(int signal)
 {
     (void)signal;
+    // Preserve errno — write() can clobber it, which would perturb any
+    // in-flight syscall in the interrupted thread.
+    int saved_errno = errno;
     const char msg[] = "Caught signal, quit...\n";
     write(STDOUT_FILENO, msg, sizeof(msg) - 1);
 
     g_is_quit = 1;
+    errno = saved_errno;
 }
 
 int main(int argc, char *argv[])
