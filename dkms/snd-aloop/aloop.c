@@ -23,6 +23,15 @@
 #include <linux/wait.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/version.h>
+
+/* timer_container_of replaced from_timer upstream in kernel 6.13. Provide
+ * a compat alias so this vendored copy still builds against 6.12 headers
+ * (the kernel Armbian Trixie stable currently ships). */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 13, 0)
+#define timer_container_of(var, callback_timer, timer_fieldname) \
+	from_timer(var, callback_timer, timer_fieldname)
+#endif
 #include <sound/core.h>
 #include <sound/control.h>
 #include <sound/pcm.h>

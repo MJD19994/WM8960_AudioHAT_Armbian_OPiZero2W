@@ -68,7 +68,6 @@ jobs:
           cd tools/echo-cancel
           test -x wm8960-ec
           test -x wm8960-ec-webrtc
-          file wm8960-ec wm8960-ec-webrtc
 
   build-dkms:
     name: DKMS Module Build
