@@ -104,6 +104,8 @@ aplay -D plughw:ahub0wm8960,0 test.wav
 
 **Note:** The WM8960 appears as **ahub0wm8960** sound card (typically card 0 on Armbian). Use the card name or `-D default` for portability.
 
+For a fuller command reference (mixer, sample-rate behavior, EC verification, audio-server checks, named aliases like `wm8960_music` / `wm8960_voice`), see [docs/USAGE.md](docs/USAGE.md).
+
 ## How It Works
 
 ### The Problem
@@ -192,6 +194,9 @@ WM8960_AudioHAT_Armbian_OPiZero2W/
 │       └── dkms.conf                  # DKMS configuration
 ├── scripts/                            # Utility scripts
 │   └── test-audio.sh                  # Diagnostics and interactive audio tests
+├── docs/
+│   ├── USAGE.md                        # Commands to test playback, capture, EC, mixer
+│   └── LICENSING.md                    # Per-component license breakdown
 └── TROUBLESHOOTING.md                  # Common issues and solutions
 ```
 
