@@ -36,3 +36,75 @@ jobs:
         run: |
           dtc -@ -I dts -O dtb -o /tmp/wm8960.dtbo overlays/sun50i-h618-wm8960-armbian.dts
           echo "Overlay compiled successfully ($(stat -c%s /tmp/wm8960.dtbo) bytes)"
+
+  build-echo-cancel:
+    name: Echo Canceller Build
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: debian:trixie-slim
+    steps:
+      - name: Install build deps
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            libasound2-dev \
+            libspeexdsp-dev \
+            libwebrtc-audio-processing-dev \
+            ca-certificates \
+            git
+
+      - uses: actions/checkout@v4
+
+      - name: Build both engines (default target = make all)
+        run: |
+          cd tools/echo-cancel
+          make clean
+          make
+
+      - name: Verify binaries
+        run: |
+          cd tools/echo-cancel
+          test -x wm8960-ec
+          test -x wm8960-ec-webrtc
+          file wm8960-ec wm8960-ec-webrtc
+
+  build-dkms:
+    name: DKMS Module Build
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: debian:trixie-slim
+    steps:
+      - name: Install build deps
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            linux-headers-arm64 \
+            ca-certificates \
+            git
+
+      - uses: actions/checkout@v4
+
+      - name: Locate kernel headers
+        id: khdr
+        run: |
+          KDIR=$(ls -d /usr/src/linux-headers-*-arm64 2>/dev/null | head -1)
+          if [ -z "$KDIR" ]; then
+            echo "No kernel headers found under /usr/src"
+            ls /usr/src
+            exit 1
+          fi
+          echo "kdir=$KDIR" >> "$GITHUB_OUTPUT"
+          echo "Using kernel headers: $KDIR"
+
+      - name: Build wm8960 codec module
+        run: |
+          make -C dkms all KDIR="${{ steps.khdr.outputs.kdir }}"
+          test -f dkms/snd-soc-wm8960.ko
+
+      - name: Build snd-aloop module
+        run: |
+          make -C dkms/snd-aloop all KERNELDIR="${{ steps.khdr.outputs.kdir }}"
+          test -f dkms/snd-aloop/snd-aloop.ko
