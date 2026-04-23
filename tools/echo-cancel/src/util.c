@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // from http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
 unsigned power2(unsigned v)
 {

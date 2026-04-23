@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 
 #ifndef ECHO_CANCEL_CONF_H
 #define ECHO_CANCEL_CONF_H

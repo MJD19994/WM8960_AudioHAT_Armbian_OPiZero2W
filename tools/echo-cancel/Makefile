@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Echo Canceller for WM8960 Audio HAT
 # Two implementations:
 #   wm8960-ec        — SpeexDSP, FIFO-based (works without snd-aloop)

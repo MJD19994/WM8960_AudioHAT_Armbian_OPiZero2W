@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // ec_webrtc — WebRTC AEC for WM8960 Audio HAT (loopback router design)
 //
 // The EC binary acts as the audio router between applications and hardware:
