@@ -120,16 +120,29 @@ static int alsa_set_params(snd_pcm_t *handle, unsigned rate, unsigned channels)
     return 0;
 }
 
-static void alsa_recover(snd_pcm_t *h, int err)
+// Returns 0 on successful recovery, negative on unrecoverable failure so
+// callers in tight retry loops (write_all_pcm) can give up instead of
+// busy-looping on a dead device.
+static int alsa_recover(snd_pcm_t *h, int err)
 {
     if (err == -EPIPE) {
-        if (snd_pcm_prepare(h) < 0)
+        err = snd_pcm_prepare(h);
+        if (err < 0) {
             fprintf(stderr, "alsa_recover: prepare failed after underrun\n");
+            return err;
+        }
     } else if (err == -ESTRPIPE) {
-        while (snd_pcm_resume(h) == -EAGAIN) usleep(10000);
-        if (snd_pcm_prepare(h) < 0)
+        while ((err = snd_pcm_resume(h)) == -EAGAIN) usleep(10000);
+        // resume isn't supported on every PCM type — fall back to prepare
+        // only when resume actually failed, not after a successful resume.
+        if (err < 0)
+            err = snd_pcm_prepare(h);
+        if (err < 0) {
             fprintf(stderr, "alsa_recover: prepare failed after suspend\n");
+            return err;
+        }
     }
+    return 0;
 }
 
 // Handle short writes: snd_pcm_writei can return fewer frames than requested
@@ -150,7 +163,8 @@ static int write_all_pcm(snd_pcm_t *pcm, const int16_t *buf,
                 continue;
             if (n != -EPIPE && n != -ESTRPIPE)
                 return -1;
-            alsa_recover(pcm, (int)n);
+            if (alsa_recover(pcm, (int)n) < 0)
+                return -1;
             continue;
         }
         if (n == 0) {
