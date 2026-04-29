@@ -441,6 +441,9 @@ int main(int argc, char *argv[])
             spk_stereo[i * 2 + 1] = ref_buf[i];
         }
         if (write_all_pcm(pcm_spk, spk_stereo, frame_size, 2) < 0) {
+            // If g_quit was set mid-write the helper returns -1 even though
+            // we're shutting down cleanly — don't classify that as a failure.
+            if (g_quit) break;
             fprintf(stderr, "Speaker write failed unrecoverably — exiting\n");
             exit_status = 1;
             break;
@@ -454,6 +457,7 @@ int main(int argc, char *argv[])
 
         // 6. Write processed audio to output loopback
         if (write_all_pcm(pcm_app_out, out_buf, frame_size, 1) < 0) {
+            if (g_quit) break;
             fprintf(stderr, "App-out write failed unrecoverably — exiting\n");
             exit_status = 1;
             break;

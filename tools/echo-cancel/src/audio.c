@@ -399,7 +399,7 @@ int capture_start(conf_t *conf)
     if (buf == NULL)
     {
         fprintf(stderr, "Fail to allocate memory.\n");
-        exit(1);
+        return -1;
     }
 
     ring_buffer_size_t ret = PaUtil_InitializeRingBuffer(&g_capture_ringbuffer, buffer_bytes, buffer_size, buf);
@@ -407,7 +407,7 @@ int capture_start(conf_t *conf)
     {
         fprintf(stderr, "Initialize ring buffer but element count is not a power of 2.\n");
         free(buf);
-        exit(1);
+        return -1;
     }
 
     int err = pthread_create(&g_capture_thread, NULL, capture, conf);
@@ -430,7 +430,7 @@ int playback_start(conf_t *conf)
     if (buf == NULL)
     {
         fprintf(stderr, "Fail to allocate memory.\n");
-        exit(1);
+        return -1;
     }
 
     ring_buffer_size_t ret = PaUtil_InitializeRingBuffer(&g_playback_ringbuffer, buffer_bytes, buffer_size, buf);
@@ -438,7 +438,7 @@ int playback_start(conf_t *conf)
     {
         fprintf(stderr, "Initialize ring buffer but element count is not a power of 2.\n");
         free(buf);
-        exit(1);
+        return -1;
     }
 
     int err = pthread_create(&g_playback_thread, NULL, playback, conf);
