@@ -75,7 +75,10 @@ static int alsa_set_params(snd_pcm_t *handle, unsigned rate, unsigned channels)
     int err;
     snd_pcm_hw_params_t *hw;
     snd_pcm_hw_params_alloca(&hw);
-    snd_pcm_hw_params_any(handle, hw);
+    if ((err = snd_pcm_hw_params_any(handle, hw)) < 0) {
+        fprintf(stderr, "ALSA hw_params_any failed: %s\n", snd_strerror(err));
+        return -1;
+    }
     if ((err = snd_pcm_hw_params_set_access(handle, hw, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
         fprintf(stderr, "ALSA set_access failed: %s\n", snd_strerror(err));
         return -1;
@@ -204,21 +207,35 @@ int main(int argc, char *argv[])
         case 'o': app_out = optarg; break;
         case 'm': mic_dev = optarg; break;
         case 'p': spk_dev = optarg; break;
-        case 'r': rate = (unsigned)parse_long(optarg, "r"); break;
-        case 'n':
-            ns_level = (int)parse_long(optarg, "n");
-            if (ns_level < 0 || ns_level > 4) {
-                fprintf(stderr, "Invalid noise suppression level %d — must be 0..4\n", ns_level);
+        // Validate as long before narrowing — casting first lets large
+        // inputs wrap into the valid range and bypass the bounds check.
+        case 'r': {
+            long v = parse_long(optarg, "r");
+            if (v != 16000 && v != 32000 && v != 48000) {
+                fprintf(stderr, "Invalid rate %ld — must be 16000, 32000, or 48000\n", v);
                 return 1;
             }
+            rate = (unsigned)v;
             break;
-        case 'd':
-            delay_ms = (int)parse_long(optarg, "d");
-            if (delay_ms < 0 || delay_ms > 500) {
-                fprintf(stderr, "Invalid delay %d — must be 0..500ms (AEC3 recommends 0)\n", delay_ms);
+        }
+        case 'n': {
+            long v = parse_long(optarg, "n");
+            if (v < 0 || v > 4) {
+                fprintf(stderr, "Invalid noise suppression level %ld — must be 0..4\n", v);
                 return 1;
             }
+            ns_level = (int)v;
             break;
+        }
+        case 'd': {
+            long v = parse_long(optarg, "d");
+            if (v < 0 || v > 500) {
+                fprintf(stderr, "Invalid delay %ld — must be 0..500ms (AEC3 recommends 0)\n", v);
+                return 1;
+            }
+            delay_ms = (int)v;
+            break;
+        }
         case 'g': agc = 1; break;
         case 'M': mobile_mode = 1; break;
         case 'H': highpass = 0; break;
@@ -229,11 +246,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Validate rate
-    if (rate != 16000 && rate != 32000 && rate != 48000) {
-        fprintf(stderr, "Invalid rate %u — must be 16000, 32000, or 48000\n", rate);
-        return 1;
-    }
+    // Rate is validated at parse time in the -r switch case.
 
     if (daemon_mode) {
         pid_t pid = fork();
@@ -270,6 +283,7 @@ int main(int argc, char *argv[])
     snd_pcm_t *pcm_spk = nullptr;
 
     int err;
+    int exit_status = 0;
     err = snd_pcm_open(&pcm_app_in, app_in, SND_PCM_STREAM_CAPTURE, 0);
     if (err < 0) { fprintf(stderr, "app_in %s: %s\n", app_in, snd_strerror(err)); return 1; }
 
@@ -428,6 +442,7 @@ int main(int argc, char *argv[])
         }
         if (write_all_pcm(pcm_spk, spk_stereo, frame_size, 2) < 0) {
             fprintf(stderr, "Speaker write failed unrecoverably — exiting\n");
+            exit_status = 1;
             break;
         }
 
@@ -440,6 +455,7 @@ int main(int argc, char *argv[])
         // 6. Write processed audio to output loopback
         if (write_all_pcm(pcm_app_out, out_buf, frame_size, 1) < 0) {
             fprintf(stderr, "App-out write failed unrecoverably — exiting\n");
+            exit_status = 1;
             break;
         }
 
@@ -466,7 +482,7 @@ int main(int argc, char *argv[])
     snd_pcm_close(pcm_mic);
     snd_pcm_close(pcm_app_out);
     snd_pcm_close(pcm_app_in);
-    return 0;
+    return exit_status;
 
 fail4: snd_pcm_close(pcm_spk);
 fail3: snd_pcm_close(pcm_mic);

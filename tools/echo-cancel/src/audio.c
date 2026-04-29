@@ -100,7 +100,11 @@ static int set_params(snd_pcm_t *handle, unsigned rate, unsigned channels, unsig
         exit(1);
     }
     if (actual_rate != rate) {
-        fprintf(stderr, "Warning: rate %u not available, using %u\n", rate, actual_rate);
+        // frame_size and the Speex echo state are pinned to config.rate, so
+        // proceeding with a different rate desyncs every cycle. Fail loud
+        // instead — same posture as ec_webrtc.cpp's set_params.
+        fprintf(stderr, "ALSA rate mismatch: requested %u, got %u\n", rate, actual_rate);
+        exit(1);
     }
 
     err = snd_pcm_hw_params_set_channels(handle, hw_params, channels);
