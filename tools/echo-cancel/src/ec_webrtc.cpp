@@ -319,7 +319,7 @@ int main(int argc, char *argv[])
     {
     // Create WebRTC Audio Processing Module
     webrtc::AudioProcessing *apm = webrtc::AudioProcessingBuilder().Create();
-    if (!apm) { fprintf(stderr, "WebRTC AudioProcessing init failed\n"); goto fail4; }
+    if (!apm) { fprintf(stderr, "WebRTC AudioProcessing init failed\n"); exit_status = 1; goto fail4; }
 
     // Configure processing
     webrtc::AudioProcessing::Config cfg;
@@ -341,23 +341,37 @@ int main(int argc, char *argv[])
     apm->ApplyConfig(cfg);
     webrtc::StreamConfig mono_cfg(rate, 1);
 
-    // Allocate buffers
-    int16_t *ref_buf     = (int16_t *)calloc(frame_size, sizeof(int16_t));
-    int16_t *ref_aec     = (int16_t *)calloc(frame_size, sizeof(int16_t));
-    int16_t *spk_stereo  = (int16_t *)calloc(frame_size * 2, sizeof(int16_t));
-    int16_t *mic_stereo  = (int16_t *)calloc(frame_size * 2, sizeof(int16_t));
-    int16_t *mic_mono    = (int16_t *)calloc(frame_size, sizeof(int16_t));
-    int16_t *out_buf     = (int16_t *)calloc(frame_size, sizeof(int16_t));
-    if (!ref_buf || !ref_aec || !spk_stereo || !mic_stereo || !mic_mono || !out_buf) {
-        fprintf(stderr, "Buffer allocation failed\n");
+    // All resources declared up front and initialized to nullptr so a single
+    // cleanup lambda can safely free whatever's been allocated regardless of
+    // which error path we take. free(NULL) and delete nullptr are no-ops.
+    int16_t *ref_buf = nullptr, *ref_aec = nullptr, *spk_stereo = nullptr;
+    int16_t *mic_stereo = nullptr, *mic_mono = nullptr, *out_buf = nullptr;
+    FILE *fp_rec = nullptr, *fp_far = nullptr, *fp_out = nullptr;
+
+    auto cleanup = [&]() {
+        if (fp_rec) fclose(fp_rec);
+        if (fp_far) fclose(fp_far);
+        if (fp_out) fclose(fp_out);
         free(ref_buf); free(ref_aec); free(spk_stereo);
         free(mic_stereo); free(mic_mono); free(out_buf);
         delete apm;
+    };
+
+    // Allocate buffers
+    ref_buf    = (int16_t *)calloc(frame_size, sizeof(int16_t));
+    ref_aec    = (int16_t *)calloc(frame_size, sizeof(int16_t));
+    spk_stereo = (int16_t *)calloc(frame_size * 2, sizeof(int16_t));
+    mic_stereo = (int16_t *)calloc(frame_size * 2, sizeof(int16_t));
+    mic_mono   = (int16_t *)calloc(frame_size, sizeof(int16_t));
+    out_buf    = (int16_t *)calloc(frame_size, sizeof(int16_t));
+    if (!ref_buf || !ref_aec || !spk_stereo || !mic_stereo || !mic_mono || !out_buf) {
+        fprintf(stderr, "Buffer allocation failed\n");
+        exit_status = 1;
+        cleanup();
         goto fail4;
     }
 
     // Debug files
-    FILE *fp_rec = nullptr, *fp_far = nullptr, *fp_out = nullptr;
     if (save) {
         fp_rec = open_debug_file("/tmp/recording.raw");
         fp_far = open_debug_file("/tmp/playback.raw");
@@ -383,18 +397,17 @@ int main(int argc, char *argv[])
     int prefill_failures = 0;
     for (int i = 0; i < 4; i++) {
         if (write_all_pcm(pcm_spk, spk_stereo, frame_size, 2) < 0) {
+            // SIGINT/SIGTERM during the prefill is a clean shutdown, not a
+            // failure — stop counting and let the cleanup path run normally.
+            if (g_quit) break;
             fprintf(stderr, "Warning: speaker prefill frame %d failed\n", i);
             prefill_failures++;
         }
     }
-    if (prefill_failures == 4) {
+    if (!g_quit && prefill_failures == 4) {
         fprintf(stderr, "Speaker prefill completely failed — exiting\n");
-        if (fp_rec) fclose(fp_rec);
-        if (fp_far) fclose(fp_far);
-        if (fp_out) fclose(fp_out);
-        free(ref_buf); free(ref_aec); free(spk_stereo);
-        free(mic_stereo); free(mic_mono); free(out_buf);
-        delete apm;
+        exit_status = 1;
+        cleanup();
         goto fail4;
     }
 
@@ -406,12 +419,8 @@ int main(int argc, char *argv[])
     err = snd_pcm_nonblock(pcm_app_in, 1);
     if (err < 0) {
         fprintf(stderr, "app_in nonblock failed: %s\n", snd_strerror(err));
-        if (fp_rec) fclose(fp_rec);
-        if (fp_far) fclose(fp_far);
-        if (fp_out) fclose(fp_out);
-        free(ref_buf); free(ref_aec); free(spk_stereo);
-        free(mic_stereo); free(mic_mono); free(out_buf);
-        delete apm;
+        exit_status = 1;
+        cleanup();
         goto fail4;
     }
 
@@ -485,15 +494,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Normal cleanup after successful run
-    if (fp_rec) { fclose(fp_rec); fclose(fp_far); fclose(fp_out); }
-    free(ref_buf);
-    free(ref_aec);
-    free(spk_stereo);
-    free(mic_stereo);
-    free(mic_mono);
-    free(out_buf);
-    delete apm;
+    cleanup();
     }
 
     snd_pcm_close(pcm_spk);
