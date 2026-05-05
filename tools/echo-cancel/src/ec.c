@@ -341,6 +341,9 @@ int main(int argc, char *argv[])
         if (written < (int)frame_size) {
             // Ring-buffer overrun — FIFO reader is too slow. Log rate-limited
             // (every 5s) so the drop is observable during tuning without spam.
+            // Clamp negative returns (misuse / pa_ringbuffer error) to 0 so
+            // the dropped-frame count stays meaningful.
+            if (written < 0) written = 0;
             short_write_count += (frame_size - written);
             time_t now = time(NULL);
             if (now - last_short_warn >= 5) {
