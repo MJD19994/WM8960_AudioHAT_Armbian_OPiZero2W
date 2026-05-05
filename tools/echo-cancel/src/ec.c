@@ -61,7 +61,7 @@ const char *usage =
     " -o PCM            playback PCM (default)\n"
     " -r rate           sample rate (16000)\n"
     " -c channels       recording channels (2)\n"
-    " -b size           buffer size (262144)\n"
+    " -b size           buffer size (16384)\n"
     " -d delay          system delay between playback and capture (0)\n"
     " -f filter_length  AEC filter length (4096)\n"
     " -s                save audio to /tmp/playback.raw, /tmp/recording.raw and /tmp/out.raw\n"
