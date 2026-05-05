@@ -8,21 +8,41 @@ reviews:
     base_branches:
       - main
       - testing
+  path_filters:
+    # snd-aloop is vendored as-is from upstream; we only maintain a small
+    # kernel 6.12 compat shim, not the module itself. Skip it entirely.
+    - "!dkms/snd-aloop/**"
   path_instructions:
-    - path: "**/*.c"
+    - path: "dkms/wm8960.{c,h}"
       instructions: >
-        This is a Linux kernel module (WM8960 codec driver). Review for kernel
-        coding style, memory safety, proper error handling, and I2C/ALSA/ASoC
-        API correctness.
+        Linux kernel module sources for the WM8960 codec driver. Review
+        for kernel coding style, memory safety, error handling, and
+        ASoC/I2C API correctness across kernel versions 6.1 through
+        6.18+. The codebase carries explicit version guards (REGCACHE_MAPLE
+        for 6.8+, the .probe guard for 6.6+, the kernel 6.13+ CCU PLL
+        fix). The MCLK/PLL hardcoding is an intentional board quirk for
+        the onboard 24 MHz crystal on these HATs.
+    - path: "tools/echo-cancel/src/*.{c,cpp,h}"
+      instructions: >
+        User-space real-time audio code (NOT a kernel module). Two engines:
+        SpeexDSP (FIFO-based, legacy) and WebRTC AEC3 (snd-aloop loopback
+        router). Review for ALSA blocking semantics (snd_pcm_writei short
+        writes, EPIPE/ESTRPIPE/EINTR recovery), signal-safe shutdown
+        (g_quit / g_is_quit, errno preservation), thread safety in the
+        SpeexDSP worker threads, and real-time-audio drift (sample-rate
+        mismatches desync the AEC). pa_ringbuffer.* and pa_memorybarrier.h
+        are vendored from PortAudio under a BSD-style license; we have
+        intentionally added defensive hardening (NULL checks, zero-size
+        guards, signed-error returns) on top of the upstream code.
     - path: "**/*.sh"
       instructions: >
-        These are install/uninstall scripts for an embedded Linux SBC (Orange Pi
-        Zero 2W). Review for POSIX compliance, proper quoting, error handling,
-        and safe use of sudo/root operations.
-    - path: "dkms/**"
+        Install/uninstall scripts for an embedded Linux SBC (Orange Pi Zero
+        2W) running Armbian Trixie. Review for POSIX compliance, proper
+        quoting, error handling, and safe use of sudo/root operations.
+    - path: "**/*.dts"
       instructions: >
-        DKMS kernel module for WM8960 codec. Review for patch correctness and
-        compatibility across kernel versions 6.1 through 6.18+.
+        Device tree overlay for the Allwinner H618 enabling the WM8960 codec
+        on I2C bus 3 at address 0x1a and the AHUB audio subsystem.
   tools:
     shellcheck:
       enabled: true
@@ -35,4 +55,6 @@ reviews:
     actionlint:
       enabled: true
     gitleaks:
+      enabled: true
+    markdownlint:
       enabled: true
