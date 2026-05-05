@@ -63,7 +63,7 @@ const char *usage =
     " -c channels       recording channels (2)\n"
     " -b size           buffer size (262144)\n"
     " -d delay          system delay between playback and capture (0)\n"
-    " -f filter_length  AEC filter length (2048)\n"
+    " -f filter_length  AEC filter length (4096)\n"
     " -s                save audio to /tmp/playback.raw, /tmp/recording.raw and /tmp/out.raw\n"
     " -D                daemonize\n"
     " -h                display this help text\n"
