@@ -8,10 +8,6 @@ reviews:
     base_branches:
       - main
       - testing
-  path_filters:
-    # snd-aloop is vendored as-is from upstream; we only maintain a small
-    # kernel 6.12 compat shim, not the module itself. Skip it entirely.
-    - "!dkms/snd-aloop/**"
   path_instructions:
     - path: "dkms/wm8960.{c,h}"
       instructions: >
@@ -22,6 +18,15 @@ reviews:
         for 6.8+, the .probe guard for 6.6+, the kernel 6.13+ CCU PLL
         fix). The MCLK/PLL hardcoding is an intentional board quirk for
         the onboard 24 MHz crystal on these HATs.
+    - path: "dkms/snd-aloop/**"
+      instructions: >
+        Vendored as-is from the upstream Linux kernel. The only piece
+        we maintain is the small LINUX_VERSION_CODE < 6.13 compat shim
+        that aliases timer_container_of to from_timer (so the module
+        still builds against kernel 6.12 headers). Do NOT suggest style
+        or idiom changes to upstream code — those reviews belong on the
+        kernel mailing list, not here. Reviews of new local additions
+        (compat shims, build glue) are still useful.
     - path: "tools/echo-cancel/src/*.{c,cpp,h}"
       instructions: >
         User-space real-time audio code (NOT a kernel module). Two engines:
