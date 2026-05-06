@@ -13,7 +13,6 @@
 // the speaker output and the AEC input in the same thread.
 //
 // Requires: snd-aloop kernel module, libwebrtc-audio-processing-1
-// License: GPLv3
 
 #include <cstdio>
 #include <cstdlib>

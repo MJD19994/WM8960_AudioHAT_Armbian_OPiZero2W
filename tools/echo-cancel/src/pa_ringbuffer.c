@@ -212,7 +212,7 @@ ring_buffer_size_t PaUtil_WriteRingBuffer( PaUtilRingBuffer *rbuf, const void *d
     {
 
         memcpy( data1, data, size1*rbuf->elementSizeBytes );
-        data = ((char *)data) + size1*rbuf->elementSizeBytes;
+        data = ((const char *)data) + size1*rbuf->elementSizeBytes;
         memcpy( data2, data, size2*rbuf->elementSizeBytes );
     }
     else

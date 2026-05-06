@@ -454,9 +454,8 @@ int playback_start(conf_t *conf)
 
 int capture_stop(void)
 {
-    void *ret = NULL;
     if (g_capture_ringbuffer.buffer) {
-        pthread_join(g_capture_thread, &ret);
+        pthread_join(g_capture_thread, NULL);
         free(g_capture_ringbuffer.buffer);
         g_capture_ringbuffer.buffer = NULL;
     }
@@ -466,9 +465,8 @@ int capture_stop(void)
 
 int playback_stop(void)
 {
-    void *ret = NULL;
     if (g_playback_ringbuffer.buffer) {
-        pthread_join(g_playback_thread, &ret);
+        pthread_join(g_playback_thread, NULL);
         free(g_playback_ringbuffer.buffer);
         g_playback_ringbuffer.buffer = NULL;
     }
@@ -499,7 +497,11 @@ int capture_skip(size_t frames, int timeout_ms)
     if (PaUtil_GetRingBufferReadAvailable(&g_capture_ringbuffer) < (ring_buffer_size_t)frames) {
         return -1;  /* timeout */
     }
-    return PaUtil_AdvanceRingBufferReadIndex(&g_capture_ringbuffer, frames);
+    PaUtil_AdvanceRingBufferReadIndex(&g_capture_ringbuffer, frames);
+    /* Return frames advanced for caller-friendly accounting. The ring
+     * buffer's AdvanceReadIndex returns the new wrap-masked read index,
+     * which is meaningless to callers expecting a frame count. */
+    return (int)frames;
 }
 
 int playback_read(void *buf, size_t frames, int timeout_ms)
