@@ -44,6 +44,9 @@ if [ "$UNINSTALL" -eq 1 ]; then
     rm -f /usr/local/bin/wm8960-ec
     rm -f /usr/local/bin/wm8960-ec-webrtc
     rm -f /tmp/ec.input /tmp/ec.output
+    # Remove both the new filename and the legacy generic name so users
+    # upgrading from an older installer don't get a stale drop-in left behind.
+    rm -f /etc/alsa/conf.d/50-wm8960-aec.conf
     rm -f /etc/alsa/conf.d/50-aec.conf
     rm -f /etc/modules-load.d/snd-aloop.conf
     systemctl daemon-reload
@@ -90,8 +93,20 @@ if [ "$ENGINE" = "webrtc" ]; then
     # Install ALSA AEC config
     if [ -f "${SCRIPT_DIR}/../../configs/alsa-aec.conf" ]; then
         mkdir -p /etc/alsa/conf.d
-        cp "${SCRIPT_DIR}/../../configs/alsa-aec.conf" /etc/alsa/conf.d/50-aec.conf
-        log "ALSA AEC config installed"
+        # Use a WM8960-specific drop-in name to avoid stomping on any other
+        # AEC config a user may have placed at the generic /etc/alsa/conf.d/50-aec.conf.
+        # Migrate from the legacy name if present.
+        rm -f /etc/alsa/conf.d/50-aec.conf
+        target=/etc/alsa/conf.d/50-wm8960-aec.conf
+        if [ -f "$target" ] && ! grep -q "wm8960-managed" "$target" 2>/dev/null; then
+            log_error "$target already exists and is not installer-managed; refusing to overwrite"
+            exit 1
+        fi
+        {
+            echo "# wm8960-managed"
+            cat "${SCRIPT_DIR}/../../configs/alsa-aec.conf"
+        } > "$target"
+        log "ALSA AEC config installed at $target"
     fi
 fi
 
