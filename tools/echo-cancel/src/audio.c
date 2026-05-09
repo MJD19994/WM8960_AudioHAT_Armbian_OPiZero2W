@@ -10,6 +10,7 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
@@ -455,7 +456,9 @@ int playback_start(conf_t *conf)
 int capture_stop(void)
 {
     if (g_capture_ringbuffer.buffer) {
-        pthread_join(g_capture_thread, NULL);
+        int err = pthread_join(g_capture_thread, NULL);
+        if (err != 0)
+            fprintf(stderr, "Warning: capture thread join failed: %s\n", strerror(err));
         free(g_capture_ringbuffer.buffer);
         g_capture_ringbuffer.buffer = NULL;
     }
@@ -466,7 +469,9 @@ int capture_stop(void)
 int playback_stop(void)
 {
     if (g_playback_ringbuffer.buffer) {
-        pthread_join(g_playback_thread, NULL);
+        int err = pthread_join(g_playback_thread, NULL);
+        if (err != 0)
+            fprintf(stderr, "Warning: playback thread join failed: %s\n", strerror(err));
         free(g_playback_ringbuffer.buffer);
         g_playback_ringbuffer.buffer = NULL;
     }
@@ -489,6 +494,12 @@ int capture_read(void *buf, size_t frames, int timeout_ms)
 
 int capture_skip(size_t frames, int timeout_ms)
 {
+    /* Return type is int but `frames` is size_t — guard against truncation
+     * before doing any work so callers always see a meaningful value. */
+    if (frames > (size_t)INT_MAX) {
+        fprintf(stderr, "capture_skip: frames %zu exceeds INT_MAX\n", frames);
+        return -1;
+    }
     while (PaUtil_GetRingBufferReadAvailable(&g_capture_ringbuffer) < (ring_buffer_size_t)frames && timeout_ms > 0)
     {
         usleep(1000);

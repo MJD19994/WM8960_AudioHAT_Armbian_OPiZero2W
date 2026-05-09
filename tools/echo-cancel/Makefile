@@ -27,6 +27,7 @@ SPEEX_OBJ := $(SRCDIR)/ec.o $(SRCDIR)/audio.o $(SRCDIR)/fifo.o \
 WEBRTC_OBJ := $(SRCDIR)/ec_webrtc.o
 
 PREFIX ?= /usr/local
+DESTDIR ?=
 
 all: wm8960-ec wm8960-ec-webrtc
 
@@ -34,12 +35,12 @@ speex: wm8960-ec
 webrtc: wm8960-ec-webrtc
 
 wm8960-ec: $(SPEEX_OBJ)
-	$(CXX) $(SPEEX_OBJ) $(LDLIBS_SPEEX) -o $@
+	$(CXX) $(LDFLAGS) $(SPEEX_OBJ) $(LDLIBS_SPEEX) -o $@
 
 $(SRCDIR)/ec_webrtc.o: CXXFLAGS += $(WEBRTC_CXXFLAGS)
 
 wm8960-ec-webrtc: $(WEBRTC_OBJ)
-	$(CXX) $(WEBRTC_OBJ) $(LDLIBS_WEBRTC) -o $@
+	$(CXX) $(LDFLAGS) $(WEBRTC_OBJ) $(LDLIBS_WEBRTC) -o $@
 
 $(SRCDIR)/%.o: $(SRCDIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -51,12 +52,12 @@ INSTALL_TARGETS ?= wm8960-ec wm8960-ec-webrtc
 
 install: $(INSTALL_TARGETS)
 	for bin in $(INSTALL_TARGETS); do \
-		install -D -m 755 $$bin $(PREFIX)/bin/$$bin; \
+		install -D -m 755 $$bin $(DESTDIR)$(PREFIX)/bin/$$bin; \
 	done
 
 uninstall:
 	for bin in $(INSTALL_TARGETS); do \
-		rm -f $(PREFIX)/bin/$$bin; \
+		rm -f $(DESTDIR)$(PREFIX)/bin/$$bin; \
 	done
 
 clean:

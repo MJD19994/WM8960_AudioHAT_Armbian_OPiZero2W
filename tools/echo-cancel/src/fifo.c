@@ -61,14 +61,27 @@ static void *fifo_thread(void *ptr)
             if (size1 > 0) {
                 ssize_t result = write(fd, data1, size1 * g_out_ringbuffer.elementSizeBytes);
                 if (result > 0) {
+                    // Guard against partial-element writes: dividing a non-aligned
+                    // byte count by elementSizeBytes truncates and orphans the
+                    // remainder, corrupting the next frame in the ring buffer.
+                    if (result % g_out_ringbuffer.elementSizeBytes != 0) {
+                        fprintf(stderr, "FIFO partial-element write (%zd bytes, element size %u), aborting writer\n",
+                                result, g_out_ringbuffer.elementSizeBytes);
+                        break;
+                    }
                     ring_buffer_size_t elements = result / g_out_ringbuffer.elementSizeBytes;
                     total_advanced += elements;
                     // Only write data2 if data1 was fully written
                     if (elements == size1 && size2 > 0) {
                         result = write(fd, data2, size2 * g_out_ringbuffer.elementSizeBytes);
-                        if (result > 0)
+                        if (result > 0) {
+                            if (result % g_out_ringbuffer.elementSizeBytes != 0) {
+                                fprintf(stderr, "FIFO partial-element write (%zd bytes, element size %u), aborting writer\n",
+                                        result, g_out_ringbuffer.elementSizeBytes);
+                                break;
+                            }
                             total_advanced += result / g_out_ringbuffer.elementSizeBytes;
-                        else if (result < 0) {
+                        } else if (result < 0) {
                             if (errno == EPIPE) {
                                 fprintf(stderr, "FIFO reader closed, exiting writer thread\n");
                                 break;
@@ -116,8 +129,7 @@ int fifo_setup(conf_t *conf)
     if (ret == -1)
     {
         fprintf(stderr, "Initialize ring buffer but element count is not a power of 2.\n");
-        free(buf);
-        return -1;
+        goto err_free;
     }
 
     // 0666 is intentional: the service runs as root, but unprivileged user
@@ -128,34 +140,32 @@ int fifo_setup(conf_t *conf)
     if (stat(conf->out_fifo, &st) != 0) {
         if (mkfifo(conf->out_fifo, 0666) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->out_fifo, strerror(errno));
-            free(buf);
-            g_out_ringbuffer.buffer = NULL;
-            return -1;
+            goto err_clear_rb;
         }
     } else if (!S_ISFIFO(st.st_mode)) {
         if (remove(conf->out_fifo) != 0) {
             fprintf(stderr, "Failed to remove existing %s: %s\n", conf->out_fifo, strerror(errno));
-            free(buf);
-            g_out_ringbuffer.buffer = NULL;
-            return -1;
+            goto err_clear_rb;
         }
         if (mkfifo(conf->out_fifo, 0666) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->out_fifo, strerror(errno));
-            free(buf);
-            g_out_ringbuffer.buffer = NULL;
-            return -1;
+            goto err_clear_rb;
         }
     }
 
     if (pthread_create(&g_writer_thread, NULL, fifo_thread, conf) != 0) {
         fprintf(stderr, "Failed to create FIFO writer thread.\n");
-        free(buf);
-        g_out_ringbuffer.buffer = NULL;
-        return -1;
+        goto err_clear_rb;
     }
     g_thread_created = 1;
 
     return 0;
+
+err_clear_rb:
+    g_out_ringbuffer.buffer = NULL;
+err_free:
+    free(buf);
+    return -1;
 }
 
 void fifo_cleanup(void)

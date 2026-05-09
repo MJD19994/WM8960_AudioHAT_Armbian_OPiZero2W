@@ -140,6 +140,11 @@ static int alsa_recover(snd_pcm_t *h, int err)
             fprintf(stderr, "alsa_recover: prepare failed after suspend\n");
             return err;
         }
+    } else {
+        // Unknown / non-recoverable error — surface it to callers instead
+        // of silently returning success. write_all_pcm filters EPIPE/
+        // ESTRPIPE first, but the main-loop read paths call us directly.
+        return err;
     }
     return 0;
 }

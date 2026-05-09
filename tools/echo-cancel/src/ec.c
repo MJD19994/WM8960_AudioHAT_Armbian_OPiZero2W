@@ -134,9 +134,17 @@ int main(int argc, char *argv[])
             config.rec_channels = parse_nonneg(optarg, "c");
             config.out_channels = config.rec_channels;
             break;
-        case 'd':
-            delay = (int)parse_nonneg(optarg, "d");
+        case 'd': {
+            // Validate as unsigned before narrowing — casting first lets large
+            // inputs wrap into a negative int and bypass the bounds check.
+            unsigned d = parse_nonneg(optarg, "d");
+            if (d > INT_MAX) {
+                fprintf(stderr, "Invalid value for -d: '%s' (must be 0..%d)\n", optarg, INT_MAX);
+                exit(1);
+            }
+            delay = (int)d;
             break;
+        }
         case 'D':
             daemonize = 1;
             break;
@@ -167,11 +175,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* Validate critical parameters */
-    if (delay < 0) {
-        fprintf(stderr, "Invalid delay: %d\n", delay);
-        exit(1);
-    }
+    /* Validate critical parameters. delay is bounds-checked at parse time. */
     if (config.rate == 0 || config.rate > 192000) {
         fprintf(stderr, "Invalid sample rate: %u\n", config.rate);
         exit(1);
