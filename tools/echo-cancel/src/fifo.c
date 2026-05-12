@@ -137,11 +137,20 @@ int fifo_setup(conf_t *conf)
     // write /tmp/ec.input. On a single-user embedded board this is an
     // accepted trade-off; a future hardening option is 0660 + a dedicated
     // audio group the installer adds the user to.
+    //
+    // mkfifo() applies the process umask, so passing 0666 with a default
+    // umask of 022 ends up at 0644 — owner-rw, world-readable but not
+    // world-writable. That breaks the design above (apps can READ
+    // /tmp/ec.output but can't WRITE /tmp/ec.input). Always chmod the
+    // FIFO right after creation to enforce the intended mode regardless
+    // of the inherited umask.
     if (stat(conf->out_fifo, &st) != 0) {
         if (mkfifo(conf->out_fifo, 0666) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->out_fifo, strerror(errno));
             goto err_clear_rb;
         }
+        if (chmod(conf->out_fifo, 0666) != 0)
+            fprintf(stderr, "Warning: chmod %s 0666 failed: %s\n", conf->out_fifo, strerror(errno));
     } else if (!S_ISFIFO(st.st_mode)) {
         if (remove(conf->out_fifo) != 0) {
             fprintf(stderr, "Failed to remove existing %s: %s\n", conf->out_fifo, strerror(errno));
@@ -151,6 +160,13 @@ int fifo_setup(conf_t *conf)
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->out_fifo, strerror(errno));
             goto err_clear_rb;
         }
+        if (chmod(conf->out_fifo, 0666) != 0)
+            fprintf(stderr, "Warning: chmod %s 0666 failed: %s\n", conf->out_fifo, strerror(errno));
+    } else {
+        // Pre-existing FIFO from an earlier run — re-chmod in case it was
+        // created under a non-zero umask before this fix shipped.
+        if (chmod(conf->out_fifo, 0666) != 0)
+            fprintf(stderr, "Warning: chmod %s 0666 failed: %s\n", conf->out_fifo, strerror(errno));
     }
 
     if (pthread_create(&g_writer_thread, NULL, fifo_thread, conf) != 0) {
