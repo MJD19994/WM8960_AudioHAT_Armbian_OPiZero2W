@@ -35,10 +35,23 @@ reviews:
         writes, EPIPE/ESTRPIPE/EINTR recovery), signal-safe shutdown
         (g_quit / g_is_quit, errno preservation), thread safety in the
         SpeexDSP worker threads, and real-time-audio drift (sample-rate
-        mismatches desync the AEC). pa_ringbuffer.* and pa_memorybarrier.h
-        are vendored from PortAudio under a BSD-style license; we have
-        intentionally added defensive hardening (NULL checks, zero-size
-        guards, signed-error returns) on top of the upstream code.
+        mismatches desync the AEC). NOTE: the pa_ringbuffer.* and
+        pa_memorybarrier.h files matched by this glob are vendored — see
+        the dedicated pa_* path instruction below for review scope on those.
+    - path: "tools/echo-cancel/src/pa_*"
+      instructions: >
+        Vendored as-is from PortAudio under a BSD-style license
+        (pa_ringbuffer.c, pa_ringbuffer.h, pa_memorybarrier.h). Do NOT
+        suggest portability or style changes targeting platforms this
+        project does not build on — we only compile for ARM Linux SBCs
+        (Orange Pi / Raspberry Pi) via gcc, which takes the __GNUC__
+        __sync_synchronize() barrier path. Comments about MSVC, _WIN32_WCE,
+        Borland, or Windows SDK intrinsics are out of scope; those reviews
+        belong upstream at portaudio.com. We HAVE applied defensive
+        hardening on top of pa_ringbuffer (NULL checks, zero-size guards,
+        signed-error returns, const-correctness in pointer arithmetic);
+        reviews of those local additions are still useful. pa_memorybarrier.h
+        is unmodified from upstream and should not be reviewed for style.
     - path: "**/*.sh"
       instructions: >
         Install/uninstall scripts for an embedded Linux SBC (Orange Pi Zero

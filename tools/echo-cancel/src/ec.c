@@ -265,6 +265,12 @@ int main(int argc, char *argv[])
     if (rec == NULL || far == NULL || out == NULL)
     {
         printf("Fail to allocate memory\n");
+        if (fp_far) fclose(fp_far);
+        if (fp_rec) fclose(fp_rec);
+        if (fp_out) fclose(fp_out);
+        free(rec);
+        free(far);
+        free(out);
         exit(1);
     }
 
