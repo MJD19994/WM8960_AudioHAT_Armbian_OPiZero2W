@@ -65,7 +65,7 @@ static void *fifo_thread(void *ptr)
                     // byte count by elementSizeBytes truncates and orphans the
                     // remainder, corrupting the next frame in the ring buffer.
                     if (result % g_out_ringbuffer.elementSizeBytes != 0) {
-                        fprintf(stderr, "FIFO partial-element write (%zd bytes, element size %u), aborting writer\n",
+                        fprintf(stderr, "FIFO partial-element write (%zd bytes, element size %ld), aborting writer\n",
                                 result, g_out_ringbuffer.elementSizeBytes);
                         break;
                     }
@@ -76,7 +76,7 @@ static void *fifo_thread(void *ptr)
                         result = write(fd, data2, size2 * g_out_ringbuffer.elementSizeBytes);
                         if (result > 0) {
                             if (result % g_out_ringbuffer.elementSizeBytes != 0) {
-                                fprintf(stderr, "FIFO partial-element write (%zd bytes, element size %u), aborting writer\n",
+                                fprintf(stderr, "FIFO partial-element write (%zd bytes, element size %ld), aborting writer\n",
                                         result, g_out_ringbuffer.elementSizeBytes);
                                 break;
                             }
