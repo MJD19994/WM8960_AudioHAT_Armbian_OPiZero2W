@@ -35,7 +35,14 @@ reviews:
         writes, EPIPE/ESTRPIPE/EINTR recovery), signal-safe shutdown
         (g_quit / g_is_quit, errno preservation), thread safety in the
         SpeexDSP worker threads, and real-time-audio drift (sample-rate
-        mismatches desync the AEC). NOTE: the pa_ringbuffer.* and
+        mismatches desync the AEC). The SpeexDSP conf.bypass field is
+        intentionally initialized to 1 (passthrough) in ec.c and is
+        toggled at runtime by the playback thread in audio.c — it stores
+        0 ("Enable AEC") once far-end audio flows and 1 again ("No
+        playback, bypass AEC") after sustained silence. Do NOT flag the
+        initial bypass=1 as the engine being stuck in passthrough; tracing
+        the atomic across to audio.c shows cancellation runs whenever a
+        reference signal is present. NOTE: the pa_ringbuffer.* and
         pa_memorybarrier.h files matched by this glob are vendored — see
         the dedicated pa_* path instruction below for review scope on those.
     - path: "tools/echo-cancel/src/pa_*"
