@@ -112,7 +112,9 @@ typedef struct PaUtilRingBuffer
  @param dataPtr A pointer to a previously allocated area where the data
  will be maintained.  It must be elementCount*elementSizeBytes long.
 
- @return -1 if elementCount is not a power of 2, otherwise 0.
+ @return -1 if any initialization argument is invalid (NULL rbuf or dataPtr,
+ zero-or-negative elementSizeBytes, zero-or-negative elementCount, or
+ elementCount not a power of 2), otherwise 0.
 */
 ring_buffer_size_t PaUtil_InitializeRingBuffer( PaUtilRingBuffer *rbuf, ring_buffer_size_t elementSizeBytes, ring_buffer_size_t elementCount, void *dataPtr );
 

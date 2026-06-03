@@ -22,7 +22,13 @@ extern "C" {
  *
  * Return conventions (all int APIs):
  *   capture_start / playback_start: 0 on success, -1 on error
- *   capture_stop  / playback_stop : always 0 (worker thread joined)
+ *   capture_stop  / playback_stop : always 0 (worker thread joined).
+ *                                   PRECONDITION: caller must set g_is_quit
+ *                                   before calling — these only pthread_join,
+ *                                   they do not signal shutdown themselves,
+ *                                   so calling without g_is_quit=1 will block
+ *                                   forever waiting for the worker to exit
+ *                                   its !g_is_quit loop.
  *   capture_read  / playback_read : frames transferred on success,
  *                                   -1 on timeout
  *   capture_skip                  : frames advanced on success,
