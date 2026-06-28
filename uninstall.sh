@@ -191,3 +191,15 @@ fi
 
 log_info "Uninstallation complete!"
 log_info "Reboot recommended"
+
+# Detect any leftover echo-cancel artifacts and remind the user to remove
+# them with the EC sub-installer (this script intentionally only manages the
+# core WM8960 driver).
+if [ -f /usr/local/bin/wm8960-ec ] || \
+   [ -f /usr/local/bin/wm8960-ec-webrtc ] || \
+   [ -f /etc/systemd/system/wm8960-echo-cancel.service ]; then
+    echo ""
+    log_info "Echo-canceller install detected (separate from core driver)."
+    log_info "To remove it as well:"
+    log_info "  cd tools/echo-cancel && sudo ./install.sh --uninstall"
+fi
