@@ -107,45 +107,47 @@ check_prerequisites() {
     KERNEL_VER=$(uname -r)
     log_info "Detected kernel: $KERNEL_VER"
 
-    # Check for pending kernel update (running kernel vs installed kernel mismatch)
-    # If a kernel update was installed via apt but the system hasn't rebooted,
-    # DKMS would build for the old kernel. The next boot's DKMS auto-rebuild
-    # would catch it, but better to warn the user early.
-    local installed_ver
-    installed_ver=$(dpkg -l 'linux-image-*' 2>/dev/null | awk '/^ii.*linux-image-[0-9]/{print $2}' | sed 's/linux-image-//' | sort -V | tail -1)
-    if [ -n "$installed_ver" ] && [ "$installed_ver" != "$KERNEL_VER" ]; then
+    # Check for pending kernel update (running kernel vs installed kernel mismatch).
+    # If a kernel update was installed via apt but the system hasn't rebooted, we
+    # target the *installed* kernel for the DKMS build — its headers are present,
+    # and the build output will be loaded on next boot. Targeting `uname -r` (the
+    # running kernel) is wrong because once a kernel-image upgrade lands, apt
+    # replaces the matching headers package, so the running kernel's headers can
+    # disappear and DKMS will fail with "headers cannot be found".
+    INSTALLED_VER=$(dpkg -l 'linux-image-*' 2>/dev/null | awk '/^ii.*linux-image-[0-9]/{print $2}' | sed 's/linux-image-//' | sort -V | tail -1)
+    if [ -n "$INSTALLED_VER" ] && [ "$INSTALLED_VER" != "$KERNEL_VER" ]; then
         log_warn "=============================================="
         log_warn "Kernel update pending reboot"
         log_warn "=============================================="
         echo ""
         echo "  Running kernel:   $KERNEL_VER"
-        echo "  Installed kernel: $installed_ver"
+        echo "  Installed kernel: $INSTALLED_VER"
         echo ""
         echo "A kernel update has been installed but not yet loaded."
-        echo "If you continue, DKMS will build for the OLD kernel and"
-        echo "will need to rebuild after reboot (adds ~30s to boot)."
+        echo "DKMS will build for the INSTALLED kernel ($INSTALLED_VER)"
+        echo "so the module is ready when you next boot."
         echo ""
-        echo "Recommended: reboot first, then re-run this script."
+        echo "Reboot recommended after this script completes."
         echo ""
         if [ -t 0 ]; then
-            read -rp "Continue anyway? (y/N) " response
-            if [[ ! "$response" =~ ^[Yy]$ ]]; then
-                log_info "Exiting. Please reboot and re-run: sudo ./install.sh"
+            read -rp "Continue? (Y/n) " response
+            if [[ "$response" =~ ^[Nn]$ ]]; then
+                log_info "Exiting. Reboot and re-run: sudo ./install.sh"
                 exit 1
             fi
-            log_info "Continuing with running kernel $KERNEL_VER..."
-        else
-            log_warn "Non-interactive mode: continuing with running kernel $KERNEL_VER"
-            log_warn "(Boot-time DKMS rebuild will handle the new kernel automatically)"
         fi
+        log_info "Targeting installed kernel: $INSTALLED_VER"
+        KERNEL_VER="$INSTALLED_VER"
         echo ""
     fi
 }
 
 install_dkms_module() {
-    # Skip if our DKMS module is already installed for the running kernel
-    local kver
-    kver=$(uname -r)
+    # Target the running kernel by default; if a kernel update is pending
+    # reboot, $KERNEL_VER was reassigned in check_prerequisites() to the
+    # installed (next-boot) kernel so we build against its headers, not the
+    # running kernel's (which apt may have just removed).
+    local kver="$KERNEL_VER"
     if dkms status wm8960-audio-hat/1.0 -k "$kver" 2>/dev/null | grep -q installed; then
         log_info "WM8960 DKMS module already installed for ${kver} — skipping"
         return 0
@@ -203,11 +205,13 @@ install_dkms_module() {
         dkms remove wm8960-audio-hat/1.0 --all 2>/dev/null || true
     fi
 
-    # Add, build, install
-    log_info "Building WM8960 module with DKMS..."
+    # Add, build, install — pass -k explicitly so a kernel-upgrade-pending-reboot
+    # state targets the installed kernel, not the running one whose headers may
+    # have just been replaced by apt.
+    log_info "Building WM8960 module with DKMS for kernel ${kver}..."
     dkms add wm8960-audio-hat/1.0 || { log_error "DKMS add failed"; exit 1; }
-    dkms build wm8960-audio-hat/1.0 || { log_error "DKMS build failed"; exit 1; }
-    dkms install wm8960-audio-hat/1.0 || { log_error "DKMS install failed"; exit 1; }
+    dkms build wm8960-audio-hat/1.0 -k "$kver" || { log_error "DKMS build failed"; exit 1; }
+    dkms install wm8960-audio-hat/1.0 -k "$kver" || { log_error "DKMS install failed"; exit 1; }
 
     log_info "WM8960 kernel module installed via DKMS"
 }

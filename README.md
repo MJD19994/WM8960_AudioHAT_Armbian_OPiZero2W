@@ -349,4 +349,4 @@ For per-file details, compatibility notes, and downstream-user guidance, see [do
 
 ---
 
-**Status**: Working on Orange Pi Zero 2W (H618) with Armbian Trixie (kernel 6.12–6.18+)
+**Status**: Working on Orange Pi Zero 2W (H618) with Armbian Trixie (kernel 6.12–6.18+). Last full validation on `6.18.36-current-sunxi64` (2026-06-28).
