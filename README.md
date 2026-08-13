@@ -104,6 +104,8 @@ aplay -D plughw:ahub0wm8960,0 test.wav
 
 **Note:** The WM8960 appears as **ahub0wm8960** sound card (typically card 0 on Armbian). Use the card name or `-D default` for portability.
 
+For a fuller command reference (mixer, sample-rate behavior, EC verification, audio-server checks, named aliases like `wm8960_music` / `wm8960_voice`), see [docs/USAGE.md](docs/USAGE.md).
+
 ## How It Works
 
 ### The Problem
@@ -181,8 +183,9 @@ WM8960_AudioHAT_Armbian_OPiZero2W/
 │   ├── pulse-echo-cancel.pa           # PulseAudio echo cancellation config
 │   └── alsa-aec.conf                  # ALSA loopback AEC virtual device
 ├── tools/                              # Optional tools
-│   └── echo-cancel/                   # Acoustic echo cancellation
+│   └── echo-cancel/                   # Acoustic echo cancellation (GPLv3)
 │       ├── install.sh                 # Installer (WebRTC or SpeexDSP)
+│       ├── LICENSE-GPL3               # GPLv3 license for this directory
 │       ├── src/ec_webrtc.cpp          # WebRTC AEC3 engine (~30dB+)
 │       ├── src/ec.c                   # SpeexDSP engine (~15dB)
 │       └── README.md                  # Echo canceller documentation
@@ -191,6 +194,9 @@ WM8960_AudioHAT_Armbian_OPiZero2W/
 │       └── dkms.conf                  # DKMS configuration
 ├── scripts/                            # Utility scripts
 │   └── test-audio.sh                  # Diagnostics and interactive audio tests
+├── docs/
+│   ├── USAGE.md                        # Commands to test playback, capture, EC, mixer
+│   └── LICENSING.md                    # Per-component license breakdown
 └── TROUBLESHOOTING.md                  # Common issues and solutions
 ```
 
@@ -319,7 +325,17 @@ Contributions are welcome! Please:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This repository contains code under three licenses, reflecting the origin of each component. The split is permitted under the GPL's aggregation clause because the components are separate binaries that never combine into a single program.
+
+| Component | License | Why |
+|-----------|---------|-----|
+| Scripts, configs, overlays, service files, docs, and all files at the repo root | **MIT** — see [LICENSE](LICENSE) | Original work, kept permissive for maximum reuse |
+| [`dkms/`](dkms/) — kernel module source | **GPL-2.0-only** | Derived from the mainline Linux kernel `wm8960.c` codec driver (Copyright 2007–2011 Wolfson Microelectronics); kernel modules inherit the kernel's license |
+| [`tools/echo-cancel/`](tools/echo-cancel/) — optional echo canceller | **GPLv3** — see [tools/echo-cancel/LICENSE-GPL3](tools/echo-cancel/LICENSE-GPL3) | SpeexDSP engine inherits GPLv3 from [voice-engine/ec](https://github.com/voice-engine/ec); WebRTC engine is GPLv3 by our choice for consistency. The vendored PortAudio ring buffer (`pa_ringbuffer.*`, `pa_memorybarrier.h`) retains its original BSD-style license — see file headers. |
+
+If you only use the audio driver, you're working with MIT + GPL-2.0-only (standard kernel-module licensing). If you additionally install the echo canceller, GPLv3 applies to that binary only.
+
+For per-file details, compatibility notes, and downstream-user guidance, see [docs/LICENSING.md](docs/LICENSING.md).
 
 ## Related Projects
 
@@ -333,4 +349,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Status**: Working on Orange Pi Zero 2W (H618) with Armbian Trixie (kernel 6.12–6.18+)
+**Status**: Working on Orange Pi Zero 2W (H618) with Armbian Trixie (kernel 6.12–6.18+). Last full validation on `6.18.36-current-sunxi64` (2026-06-28).

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // ec - echo canceller
 
 #include <stdio.h>
@@ -9,6 +10,8 @@
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
+#include <time.h>
+#include <limits.h>
 #include <sys/stat.h>
 
 #include <speex/speex_echo.h>
@@ -16,16 +19,72 @@
 #include "conf.h"
 #include "audio.h"
 
+// Parse a non-negative integer from optarg; abort on garbage, negatives, or
+// values above UINT_MAX (which would silently truncate when callers cast to
+// unsigned). atoi silently turns "-1" into a huge unsigned and "abc" into 0.
+static unsigned parse_nonneg(const char *s, const char *name)
+{
+    char *end;
+    errno = 0;
+    long v = strtol(s, &end, 10);
+    if (errno != 0 || end == s || *end != '\0' || v < 0 || v > UINT_MAX) {
+        fprintf(stderr, "Invalid value for -%s: '%s' (must be 0..%u)\n", name, s, UINT_MAX);
+        exit(1);
+    }
+    return (unsigned)v;
+}
+
+// Open a debug file safely. The service runs as root and these paths live in
+// world-writable /tmp, so validate before writing anything:
+//   O_NOFOLLOW  — a symlink planted at the path can't redirect us elsewhere.
+//   O_NONBLOCK  — a FIFO planted at the path can't wedge open() waiting for a
+//                 reader (it fails ENXIO instead). No effect on regular files.
+//   no O_TRUNC  — truncating happens only after the checks below, so a file
+//                 someone else pre-created is never modified at all.
+//   S_ISREG     — rejects FIFOs and device nodes that survived the above.
+//   st_uid      — rejects a regular file pre-created by another user; without
+//                 this they could pre-create the path and then read the mic
+//                 audio we write into it.
+//   st_nlink    — rejects a hardlink planted at the path. The uid check alone
+//                 passes for a link to a root-owned file, so without this an
+//                 unprivileged user can point the path at any file root can
+//                 write and have us truncate it. Armbian images ship with
+//                 fs.protected_hardlinks=0, so that link is theirs to make.
+// Only once the fd is known to be our own unlinked regular file do we reassert
+// 0600 (an earlier run may have left it more permissive) and truncate.
+static FILE *open_debug_file(const char *path)
+{
+    int fd = open(path, O_WRONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0 && errno == ENOENT)
+        fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0)
+        return NULL;
+    struct stat st;
+    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) ||
+        st.st_uid != geteuid() || st.st_nlink != 1) {
+        close(fd);
+        return NULL;
+    }
+    if (fchmod(fd, 0600) < 0 || ftruncate(fd, 0) < 0) {
+        close(fd);
+        return NULL;
+    }
+    FILE *fp = fdopen(fd, "wb");
+    if (!fp)
+        close(fd);
+    return fp;
+}
+
 const char *usage =
     "Usage:\n %s [options]\n"
     "Options:\n"
-    " -i PCM            playback PCM (default)\n"
-    " -o PCM            capture PCM (default)\n"
+    " -i PCM            capture PCM (default)\n"
+    " -o PCM            playback PCM (default)\n"
     " -r rate           sample rate (16000)\n"
     " -c channels       recording channels (2)\n"
-    " -b size           buffer size (262144)\n"
+    " -b size           buffer size (16384)\n"
     " -d delay          system delay between playback and capture (0)\n"
-    " -f filter_length  AEC filter length (2048)\n"
+    " -f filter_length  AEC filter length (4096)\n"
     " -s                save audio to /tmp/playback.raw, /tmp/recording.raw and /tmp/out.raw\n"
     " -D                daemonize\n"
     " -h                display this help text\n"
@@ -44,10 +103,14 @@ extern int fifo_write(void *buf, size_t frames);
 static void int_handler(int signal)
 {
     (void)signal;
+    // Preserve errno — write() can clobber it, which would perturb any
+    // in-flight syscall in the interrupted thread.
+    int saved_errno = errno;
     const char msg[] = "Caught signal, quit...\n";
     write(STDOUT_FILENO, msg, sizeof(msg) - 1);
 
     g_is_quit = 1;
+    errno = saved_errno;
 }
 
 int main(int argc, char *argv[])
@@ -86,20 +149,28 @@ int main(int argc, char *argv[])
         switch (opt)
         {
         case 'b':
-            config.buffer_size = atoi(optarg);
+            config.buffer_size = parse_nonneg(optarg, "b");
             break;
         case 'c':
-            config.rec_channels = atoi(optarg);
+            config.rec_channels = parse_nonneg(optarg, "c");
             config.out_channels = config.rec_channels;
             break;
-        case 'd':
-            delay = atoi(optarg);
+        case 'd': {
+            // Validate as unsigned before narrowing — casting first lets large
+            // inputs wrap into a negative int and bypass the bounds check.
+            unsigned d = parse_nonneg(optarg, "d");
+            if (d > INT_MAX) {
+                fprintf(stderr, "Invalid value for -d: '%s' (must be 0..%d)\n", optarg, INT_MAX);
+                exit(1);
+            }
+            delay = (int)d;
             break;
+        }
         case 'D':
             daemonize = 1;
             break;
         case 'f':
-            config.filter_length = atoi(optarg);
+            config.filter_length = parse_nonneg(optarg, "f");
             break;
         case 'h':
             printf(usage, argv[0]);
@@ -111,7 +182,7 @@ int main(int argc, char *argv[])
             config.out_pcm = optarg;
             break;
         case 'r':
-            config.rate = atoi(optarg);
+            config.rate = parse_nonneg(optarg, "r");
             break;
         case 's':
             save_audio = 1;
@@ -125,11 +196,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* Validate critical parameters */
-    if (delay < 0) {
-        fprintf(stderr, "Invalid delay: %d\n", delay);
-        exit(1);
-    }
+    /* Validate critical parameters. delay is bounds-checked at parse time. */
     if (config.rate == 0 || config.rate > 192000) {
         fprintf(stderr, "Invalid sample rate: %u\n", config.rate);
         exit(1);
@@ -198,9 +265,9 @@ int main(int argc, char *argv[])
 
     if (save_audio)
     {
-        fp_far = fopen("/tmp/playback.raw", "wb");
-        fp_rec = fopen("/tmp/recording.raw", "wb");
-        fp_out = fopen("/tmp/out.raw", "wb");
+        fp_far = open_debug_file("/tmp/playback.raw");
+        fp_rec = open_debug_file("/tmp/recording.raw");
+        fp_out = open_debug_file("/tmp/out.raw");
 
         if (fp_far == NULL || fp_rec == NULL || fp_out == NULL)
         {
@@ -219,6 +286,12 @@ int main(int argc, char *argv[])
     if (rec == NULL || far == NULL || out == NULL)
     {
         printf("Fail to allocate memory\n");
+        if (fp_far) fclose(fp_far);
+        if (fp_rec) fclose(fp_rec);
+        if (fp_out) fclose(fp_out);
+        free(rec);
+        free(far);
+        free(out);
         exit(1);
     }
 
@@ -228,6 +301,10 @@ int main(int argc, char *argv[])
     sigemptyset(&sig_int_handler.sa_mask);
     sig_int_handler.sa_flags = 0;
     sigaction(SIGINT, &sig_int_handler, NULL);
+    sigaction(SIGTERM, &sig_int_handler, NULL);
+    // systemctl stop sends SIGTERM; without this the service waits for
+    // TimeoutStopSec then gets SIGKILL'd, leaving FIFO and ALSA state dirty.
+    signal(SIGPIPE, SIG_IGN);
 
     echo_state = speex_echo_state_init_mc(frame_size,
                                           config.filter_length,
@@ -237,7 +314,8 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to initialize Speex echo canceller\n");
         exit(1);
     }
-    speex_echo_ctl(echo_state, SPEEX_ECHO_SET_SAMPLING_RATE, &(config.rate));
+    spx_int32_t sr = (spx_int32_t)config.rate;
+    speex_echo_ctl(echo_state, SPEEX_ECHO_SET_SAMPLING_RATE, &sr);
 
     if (playback_start(&config) < 0) {
         fprintf(stderr, "Failed to start playback\n");
@@ -260,10 +338,17 @@ int main(int argc, char *argv[])
     int skipped = capture_skip(delay, timeout);
     printf("skip frames %d\n", skipped);
 
+    time_t last_short_warn = 0;
+    unsigned int short_write_count = 0;
+
     while (!g_is_quit)
     {
-        if (capture_read(rec, frame_size, timeout) < 0)
+        if (capture_read(rec, frame_size, timeout) < 0) {
+            // Drain one playback frame even on capture stall so the playback
+            // ringbuffer doesn't monotonically grow and drift far/rec alignment.
+            (void)playback_read(far, frame_size, timeout);
             continue;
+        }
         if (playback_read(far, frame_size, timeout) < 0)
             memset(far, 0, frame_size * config.ref_channels * sizeof(int16_t));
 
@@ -276,17 +361,32 @@ int main(int argc, char *argv[])
             memcpy(out, rec, frame_size * config.rec_channels * config.bits_per_sample / 8);
         }
 
-        if (fp_far)
+        if (save_audio)
         {
             fwrite(rec, 2, frame_size * config.rec_channels, fp_rec);
-            fwrite(far, 2, frame_size, fp_far);
+            fwrite(far, 2, frame_size * config.ref_channels, fp_far);
             fwrite(out, 2, frame_size * config.out_channels, fp_out);
         }
 
-        fifo_write(out, frame_size);
+        int written = fifo_write(out, frame_size);
+        if (written < (int)frame_size) {
+            // Ring-buffer overrun — FIFO reader is too slow. Log rate-limited
+            // (every 5s) so the drop is observable during tuning without spam.
+            // Clamp negative returns (misuse / pa_ringbuffer error) to 0 so
+            // the dropped-frame count stays meaningful.
+            if (written < 0) written = 0;
+            short_write_count += (frame_size - written);
+            time_t now = time(NULL);
+            if (now - last_short_warn >= 5) {
+                fprintf(stderr, "fifo_write: %u frames dropped in last 5s (reader too slow?)\n",
+                        short_write_count);
+                last_short_warn = now;
+                short_write_count = 0;
+            }
+        }
     }
 
-    if (fp_far)
+    if (save_audio)
     {
         fclose(fp_rec);
         fclose(fp_far);

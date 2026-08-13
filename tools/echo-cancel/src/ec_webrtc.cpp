@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // ec_webrtc — WebRTC AEC for WM8960 Audio HAT (loopback router design)
 //
 // The EC binary acts as the audio router between applications and hardware:
@@ -12,7 +13,6 @@
 // the speaker output and the AEC input in the same thread.
 //
 // Requires: snd-aloop kernel module, libwebrtc-audio-processing-1
-// License: GPLv3
 
 #include <cstdio>
 #include <cstdlib>
@@ -20,6 +20,7 @@
 #include <cstring>
 #include <csignal>
 #include <cerrno>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -54,12 +55,29 @@ static const char *usage_text =
 static volatile sig_atomic_t g_quit = 0;
 static void signal_handler(int /*sig*/) { g_quit = 1; }
 
+// Parse a strict integer from optarg; abort on garbage, trailing junk, or
+// overflow. atoi silently accepts "abc" as 0 and "48000junk" as 48000.
+static long parse_long(const char *s, const char *name)
+{
+    char *end;
+    errno = 0;
+    long v = strtol(s, &end, 10);
+    if (errno != 0 || end == s || *end != '\0') {
+        fprintf(stderr, "Invalid value for -%s: '%s' (must be an integer)\n", name, s);
+        exit(1);
+    }
+    return v;
+}
+
 static int alsa_set_params(snd_pcm_t *handle, unsigned rate, unsigned channels)
 {
     int err;
     snd_pcm_hw_params_t *hw;
     snd_pcm_hw_params_alloca(&hw);
-    snd_pcm_hw_params_any(handle, hw);
+    if ((err = snd_pcm_hw_params_any(handle, hw)) < 0) {
+        fprintf(stderr, "ALSA hw_params_any failed: %s\n", snd_strerror(err));
+        return -1;
+    }
     if ((err = snd_pcm_hw_params_set_access(handle, hw, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
         fprintf(stderr, "ALSA set_access failed: %s\n", snd_strerror(err));
         return -1;
@@ -69,16 +87,30 @@ static int alsa_set_params(snd_pcm_t *handle, unsigned rate, unsigned channels)
         return -1;
     }
     unsigned actual = rate;
-    snd_pcm_hw_params_set_rate_near(handle, hw, &actual, 0);
-    if (actual != rate) fprintf(stderr, "Warning: rate %u → %u\n", rate, actual);
+    if ((err = snd_pcm_hw_params_set_rate_near(handle, hw, &actual, 0)) < 0) {
+        fprintf(stderr, "ALSA set_rate %u failed: %s\n", rate, snd_strerror(err));
+        return -1;
+    }
+    // frame_size and WebRTC StreamConfig depend on the exact rate — any
+    // mismatch silently desyncs the 10ms processing loop.
+    if (actual != rate) {
+        fprintf(stderr, "ALSA rate mismatch: requested %u, got %u\n", rate, actual);
+        return -1;
+    }
     if ((err = snd_pcm_hw_params_set_channels(handle, hw, channels)) < 0) {
         fprintf(stderr, "ALSA set_channels %u failed: %s\n", channels, snd_strerror(err));
         return -1;
     }
     snd_pcm_uframes_t period = rate / 100;  // 10ms
-    snd_pcm_hw_params_set_period_size_near(handle, hw, &period, 0);
+    if ((err = snd_pcm_hw_params_set_period_size_near(handle, hw, &period, 0)) < 0) {
+        fprintf(stderr, "ALSA set_period_size failed: %s\n", snd_strerror(err));
+        return -1;
+    }
     snd_pcm_uframes_t buffer = period * 4;
-    snd_pcm_hw_params_set_buffer_size_near(handle, hw, &buffer);
+    if ((err = snd_pcm_hw_params_set_buffer_size_near(handle, hw, &buffer)) < 0) {
+        fprintf(stderr, "ALSA set_buffer_size failed: %s\n", snd_strerror(err));
+        return -1;
+    }
     err = snd_pcm_hw_params(handle, hw);
     if (err < 0) {
         fprintf(stderr, "ALSA hw_params failed: %s\n", snd_strerror(err));
@@ -87,16 +119,107 @@ static int alsa_set_params(snd_pcm_t *handle, unsigned rate, unsigned channels)
     return 0;
 }
 
-static void alsa_recover(snd_pcm_t *h, int err)
+// Returns 0 on successful recovery, negative on unrecoverable failure so
+// callers in tight retry loops (write_all_pcm) can give up instead of
+// busy-looping on a dead device.
+static int alsa_recover(snd_pcm_t *h, int err)
 {
     if (err == -EPIPE) {
-        if (snd_pcm_prepare(h) < 0)
+        err = snd_pcm_prepare(h);
+        if (err < 0) {
             fprintf(stderr, "alsa_recover: prepare failed after underrun\n");
+            return err;
+        }
     } else if (err == -ESTRPIPE) {
-        while (snd_pcm_resume(h) == -EAGAIN) usleep(10000);
-        if (snd_pcm_prepare(h) < 0)
+        while ((err = snd_pcm_resume(h)) == -EAGAIN) usleep(10000);
+        // resume isn't supported on every PCM type — fall back to prepare
+        // only when resume actually failed, not after a successful resume.
+        if (err < 0)
+            err = snd_pcm_prepare(h);
+        if (err < 0) {
             fprintf(stderr, "alsa_recover: prepare failed after suspend\n");
+            return err;
+        }
+    } else {
+        // Unknown / non-recoverable error — surface it to callers instead
+        // of silently returning success. write_all_pcm filters EPIPE/
+        // ESTRPIPE first, but the main-loop read paths call us directly.
+        return err;
     }
+    return 0;
+}
+
+// Handle short writes: snd_pcm_writei can return fewer frames than requested
+// (signals, underruns). Dropping the tail causes speaker underruns and AEC
+// reference misalignment, so loop until every frame is written.
+static int write_all_pcm(snd_pcm_t *pcm, const int16_t *buf,
+                         snd_pcm_uframes_t frames, unsigned channels)
+{
+    snd_pcm_uframes_t done = 0;
+    while (done < frames && !g_quit) {
+        snd_pcm_sframes_t n = snd_pcm_writei(pcm, buf + done * channels,
+                                             frames - done);
+        if (n < 0) {
+            // EINTR = signal interrupt during blocking write, retry.
+            // EPIPE/ESTRPIPE = underrun/suspend, recover via alsa_recover.
+            // Anything else is unrecoverable.
+            if (n == -EINTR)
+                continue;
+            if (n != -EPIPE && n != -ESTRPIPE)
+                return -1;
+            if (alsa_recover(pcm, (int)n) < 0)
+                return -1;
+            continue;
+        }
+        if (n == 0) {
+            usleep(1000);
+            continue;
+        }
+        done += (snd_pcm_uframes_t)n;
+    }
+    return done == frames ? 0 : -1;
+}
+
+// Open a debug file safely. The service runs as root and these paths live in
+// world-writable /tmp, so validate before writing anything:
+//   O_NOFOLLOW  — a symlink planted at the path can't redirect us elsewhere.
+//   O_NONBLOCK  — a FIFO planted at the path can't wedge open() waiting for a
+//                 reader (it fails ENXIO instead). No effect on regular files.
+//   no O_TRUNC  — truncating happens only after the checks below, so a file
+//                 someone else pre-created is never modified at all.
+//   S_ISREG     — rejects FIFOs and device nodes that survived the above.
+//   st_uid      — rejects a regular file pre-created by another user; without
+//                 this they could pre-create the path and then read the mic
+//                 audio we write into it.
+//   st_nlink    — rejects a hardlink planted at the path. The uid check alone
+//                 passes for a link to a root-owned file, so without this an
+//                 unprivileged user can point the path at any file root can
+//                 write and have us truncate it. Armbian images ship with
+//                 fs.protected_hardlinks=0, so that link is theirs to make.
+// Only once the fd is known to be our own unlinked regular file do we reassert
+// 0600 (an earlier run may have left it more permissive) and truncate.
+// Keep this in sync with the identical helper in ec.c.
+static FILE *open_debug_file(const char *path)
+{
+    int fd = open(path, O_WRONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0 && errno == ENOENT)
+        fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0)
+        return nullptr;
+    struct stat st;
+    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) ||
+        st.st_uid != geteuid() || st.st_nlink != 1) {
+        close(fd);
+        return nullptr;
+    }
+    if (fchmod(fd, 0600) < 0 || ftruncate(fd, 0) < 0) {
+        close(fd);
+        return nullptr;
+    }
+    FILE *fp = fdopen(fd, "wb");
+    if (!fp)
+        close(fd);
+    return fp;
 }
 
 int main(int argc, char *argv[])
@@ -124,9 +247,35 @@ int main(int argc, char *argv[])
         case 'o': app_out = optarg; break;
         case 'm': mic_dev = optarg; break;
         case 'p': spk_dev = optarg; break;
-        case 'r': rate = atoi(optarg); break;
-        case 'n': ns_level = atoi(optarg); break;
-        case 'd': delay_ms = atoi(optarg); break;
+        // Validate as long before narrowing — casting first lets large
+        // inputs wrap into the valid range and bypass the bounds check.
+        case 'r': {
+            long v = parse_long(optarg, "r");
+            if (v != 16000 && v != 32000 && v != 48000) {
+                fprintf(stderr, "Invalid rate %ld — must be 16000, 32000, or 48000\n", v);
+                return 1;
+            }
+            rate = (unsigned)v;
+            break;
+        }
+        case 'n': {
+            long v = parse_long(optarg, "n");
+            if (v < 0 || v > 4) {
+                fprintf(stderr, "Invalid noise suppression level %ld — must be 0..4\n", v);
+                return 1;
+            }
+            ns_level = (int)v;
+            break;
+        }
+        case 'd': {
+            long v = parse_long(optarg, "d");
+            if (v < 0 || v > 500) {
+                fprintf(stderr, "Invalid delay %ld — must be 0..500ms (AEC3 recommends 0)\n", v);
+                return 1;
+            }
+            delay_ms = (int)v;
+            break;
+        }
         case 'g': agc = 1; break;
         case 'M': mobile_mode = 1; break;
         case 'H': highpass = 0; break;
@@ -137,18 +286,14 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Validate rate
-    if (rate != 16000 && rate != 32000 && rate != 48000) {
-        fprintf(stderr, "Invalid rate %u — must be 16000, 32000, or 48000\n", rate);
-        return 1;
-    }
+    // Rate is validated at parse time in the -r switch case.
 
     if (daemon_mode) {
         pid_t pid = fork();
         if (pid < 0) { perror("fork"); return 1; }
         if (pid > 0) return 0;
         umask(022);
-        setsid();
+        if (setsid() < 0) { perror("setsid"); return 1; }
         if (chdir("/") < 0) { perror("chdir"); return 1; }
         if (!freopen("/dev/null", "r", stdin)) {
             perror("freopen stdin");
@@ -178,6 +323,7 @@ int main(int argc, char *argv[])
     snd_pcm_t *pcm_spk = nullptr;
 
     int err;
+    int exit_status = 0;
     err = snd_pcm_open(&pcm_app_in, app_in, SND_PCM_STREAM_CAPTURE, 0);
     if (err < 0) { fprintf(stderr, "app_in %s: %s\n", app_in, snd_strerror(err)); return 1; }
 
@@ -199,7 +345,7 @@ int main(int argc, char *argv[])
     {
     // Create WebRTC Audio Processing Module
     webrtc::AudioProcessing *apm = webrtc::AudioProcessingBuilder().Create();
-    if (!apm) { fprintf(stderr, "WebRTC AudioProcessing init failed\n"); goto fail4; }
+    if (!apm) { fprintf(stderr, "WebRTC AudioProcessing init failed\n"); exit_status = 1; goto fail4; }
 
     // Configure processing
     webrtc::AudioProcessing::Config cfg;
@@ -221,27 +367,41 @@ int main(int argc, char *argv[])
     apm->ApplyConfig(cfg);
     webrtc::StreamConfig mono_cfg(rate, 1);
 
-    // Allocate buffers
-    int16_t *ref_buf     = (int16_t *)calloc(frame_size, sizeof(int16_t));
-    int16_t *ref_aec     = (int16_t *)calloc(frame_size, sizeof(int16_t));
-    int16_t *spk_stereo  = (int16_t *)calloc(frame_size * 2, sizeof(int16_t));
-    int16_t *mic_stereo  = (int16_t *)calloc(frame_size * 2, sizeof(int16_t));
-    int16_t *mic_mono    = (int16_t *)calloc(frame_size, sizeof(int16_t));
-    int16_t *out_buf     = (int16_t *)calloc(frame_size, sizeof(int16_t));
-    if (!ref_buf || !ref_aec || !spk_stereo || !mic_stereo || !mic_mono || !out_buf) {
-        fprintf(stderr, "Buffer allocation failed\n");
+    // All resources declared up front and initialized to nullptr so a single
+    // cleanup lambda can safely free whatever's been allocated regardless of
+    // which error path we take. free(NULL) and delete nullptr are no-ops.
+    int16_t *ref_buf = nullptr, *ref_aec = nullptr, *spk_stereo = nullptr;
+    int16_t *mic_stereo = nullptr, *mic_mono = nullptr, *out_buf = nullptr;
+    FILE *fp_rec = nullptr, *fp_far = nullptr, *fp_out = nullptr;
+
+    auto cleanup = [&]() {
+        if (fp_rec) fclose(fp_rec);
+        if (fp_far) fclose(fp_far);
+        if (fp_out) fclose(fp_out);
         free(ref_buf); free(ref_aec); free(spk_stereo);
         free(mic_stereo); free(mic_mono); free(out_buf);
         delete apm;
+    };
+
+    // Allocate buffers
+    ref_buf    = (int16_t *)calloc(frame_size, sizeof(int16_t));
+    ref_aec    = (int16_t *)calloc(frame_size, sizeof(int16_t));
+    spk_stereo = (int16_t *)calloc(frame_size * 2, sizeof(int16_t));
+    mic_stereo = (int16_t *)calloc(frame_size * 2, sizeof(int16_t));
+    mic_mono   = (int16_t *)calloc(frame_size, sizeof(int16_t));
+    out_buf    = (int16_t *)calloc(frame_size, sizeof(int16_t));
+    if (!ref_buf || !ref_aec || !spk_stereo || !mic_stereo || !mic_mono || !out_buf) {
+        fprintf(stderr, "Buffer allocation failed\n");
+        exit_status = 1;
+        cleanup();
         goto fail4;
     }
 
     // Debug files
-    FILE *fp_rec = nullptr, *fp_far = nullptr, *fp_out = nullptr;
     if (save) {
-        fp_rec = fopen("/tmp/recording.raw", "wb");
-        fp_far = fopen("/tmp/playback.raw", "wb");
-        fp_out = fopen("/tmp/out.raw", "wb");
+        fp_rec = open_debug_file("/tmp/recording.raw");
+        fp_far = open_debug_file("/tmp/playback.raw");
+        fp_out = open_debug_file("/tmp/out.raw");
         if (!fp_rec || !fp_far || !fp_out) {
             fprintf(stderr, "Warning: failed to open debug files, disabling debug recording\n");
             if (fp_rec) fclose(fp_rec);
@@ -260,13 +420,35 @@ int main(int argc, char *argv[])
 
     // Pre-fill speaker with silence to start the stream
     memset(spk_stereo, 0, frame_size * 2 * sizeof(int16_t));
-    for (int i = 0; i < 4; i++)
-        snd_pcm_writei(pcm_spk, spk_stereo, frame_size);
+    int prefill_failures = 0;
+    for (int i = 0; i < 4; i++) {
+        if (write_all_pcm(pcm_spk, spk_stereo, frame_size, 2) < 0) {
+            // SIGINT/SIGTERM during the prefill is a clean shutdown, not a
+            // failure — stop counting and let the cleanup path run normally.
+            if (g_quit) break;
+            fprintf(stderr, "Warning: speaker prefill frame %d failed\n", i);
+            prefill_failures++;
+        }
+    }
+    if (!g_quit && prefill_failures == 4) {
+        fprintf(stderr, "Speaker prefill completely failed — exiting\n");
+        exit_status = 1;
+        cleanup();
+        goto fail4;
+    }
 
     // The mic (dsnoop) drives the loop timing — it always has data at a
     // steady rate. The loopback reference is read non-blocking so it
     // doesn't stall the mic reads and cause temporal misalignment.
-    snd_pcm_nonblock(pcm_app_in, 1);
+    // If nonblock fails, the -EAGAIN check in the read loop becomes
+    // meaningless and mic processing can stall, so treat it as fatal.
+    err = snd_pcm_nonblock(pcm_app_in, 1);
+    if (err < 0) {
+        fprintf(stderr, "app_in nonblock failed: %s\n", snd_strerror(err));
+        exit_status = 1;
+        cleanup();
+        goto fail4;
+    }
 
     while (!g_quit)
     {
@@ -295,30 +477,39 @@ int main(int argc, char *argv[])
             memset(ref_buf + ar, 0, (frame_size - ar) * sizeof(int16_t));
         }
 
-        // 3. Feed reference to AEC (copy — speaker gets unmodified audio)
+        // 3. Feed reference to AEC (copy — speaker gets unmodified audio).
+        // Silence the reference on WebRTC error so stale buffer contents
+        // don't pollute the next AEC cycle.
         memcpy(ref_aec, ref_buf, frame_size * sizeof(int16_t));
-        apm->ProcessReverseStream(ref_aec, mono_cfg, mono_cfg, ref_aec);
+        if (apm->ProcessReverseStream(ref_aec, mono_cfg, mono_cfg, ref_aec) != 0)
+            memset(ref_aec, 0, frame_size * sizeof(int16_t));
 
         // 4. Write to speaker (mono → stereo duplication)
         for (unsigned i = 0; i < frame_size; i++) {
             spk_stereo[i * 2]     = ref_buf[i];
             spk_stereo[i * 2 + 1] = ref_buf[i];
         }
-        ssize_t sw = snd_pcm_writei(pcm_spk, spk_stereo, frame_size);
-        if (sw < 0) {
-            alsa_recover(pcm_spk, sw);
-            snd_pcm_writei(pcm_spk, spk_stereo, frame_size);
+        if (write_all_pcm(pcm_spk, spk_stereo, frame_size, 2) < 0) {
+            // If g_quit was set mid-write the helper returns -1 even though
+            // we're shutting down cleanly — don't classify that as a failure.
+            if (g_quit) break;
+            fprintf(stderr, "Speaker write failed unrecoverably — exiting\n");
+            exit_status = 1;
+            break;
         }
 
-        // 5. Process mic through AEC
+        // 5. Process mic through AEC — silence out_buf on error to avoid
+        // writing stale/uninitialized audio downstream.
         apm->set_stream_delay_ms(delay_ms);
-        apm->ProcessStream(mic_mono, mono_cfg, mono_cfg, out_buf);
+        if (apm->ProcessStream(mic_mono, mono_cfg, mono_cfg, out_buf) != 0)
+            memset(out_buf, 0, frame_size * sizeof(int16_t));
 
         // 6. Write processed audio to output loopback
-        ssize_t ow = snd_pcm_writei(pcm_app_out, out_buf, frame_size);
-        if (ow < 0) {
-            alsa_recover(pcm_app_out, ow);
-            snd_pcm_writei(pcm_app_out, out_buf, frame_size);
+        if (write_all_pcm(pcm_app_out, out_buf, frame_size, 1) < 0) {
+            if (g_quit) break;
+            fprintf(stderr, "App-out write failed unrecoverably — exiting\n");
+            exit_status = 1;
+            break;
         }
 
         // 7. Debug files
@@ -329,22 +520,14 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Normal cleanup after successful run
-    if (fp_rec) { fclose(fp_rec); fclose(fp_far); fclose(fp_out); }
-    free(ref_buf);
-    free(ref_aec);
-    free(spk_stereo);
-    free(mic_stereo);
-    free(mic_mono);
-    free(out_buf);
-    delete apm;
+    cleanup();
     }
 
     snd_pcm_close(pcm_spk);
     snd_pcm_close(pcm_mic);
     snd_pcm_close(pcm_app_out);
     snd_pcm_close(pcm_app_in);
-    return 0;
+    return exit_status;
 
 fail4: snd_pcm_close(pcm_spk);
 fail3: snd_pcm_close(pcm_mic);

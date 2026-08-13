@@ -9,20 +9,65 @@ reviews:
       - main
       - testing
   path_instructions:
-    - path: "**/*.c"
+    - path: "dkms/wm8960.{c,h}"
       instructions: >
-        This is a Linux kernel module (WM8960 codec driver). Review for kernel
-        coding style, memory safety, proper error handling, and I2C/ALSA/ASoC
-        API correctness.
+        Linux kernel module sources for the WM8960 codec driver. Review
+        for kernel coding style, memory safety, error handling, and
+        ASoC/I2C API correctness across kernel versions 6.1 through
+        6.18+. The codebase carries explicit version guards (REGCACHE_MAPLE
+        for 6.8+, the .probe guard for 6.6+, the kernel 6.13+ CCU PLL
+        fix). The MCLK/PLL hardcoding is an intentional board quirk for
+        the onboard 24 MHz crystal on these HATs.
+    - path: "dkms/snd-aloop/**"
+      instructions: >
+        Vendored as-is from the upstream Linux kernel. The only piece
+        we maintain is the small LINUX_VERSION_CODE < 6.13 compat shim
+        that aliases timer_container_of to from_timer (so the module
+        still builds against kernel 6.12 headers). Do NOT suggest style
+        or idiom changes to upstream code — those reviews belong on the
+        kernel mailing list, not here. Reviews of new local additions
+        (compat shims, build glue) are still useful.
+    - path: "tools/echo-cancel/src/*.{c,cpp,h}"
+      instructions: >
+        User-space real-time audio code (NOT a kernel module). Two engines:
+        SpeexDSP (FIFO-based, legacy) and WebRTC AEC3 (snd-aloop loopback
+        router). Review for ALSA blocking semantics (snd_pcm_writei short
+        writes, EPIPE/ESTRPIPE/EINTR recovery), signal-safe shutdown
+        (g_quit / g_is_quit, errno preservation), thread safety in the
+        SpeexDSP worker threads, and real-time-audio drift (sample-rate
+        mismatches desync the AEC). The SpeexDSP conf.bypass field is
+        intentionally initialized to 1 (passthrough) in ec.c and is
+        toggled at runtime by the playback thread in audio.c — it stores
+        0 ("Enable AEC") once far-end audio flows and 1 again ("No
+        playback, bypass AEC") after sustained silence. Do NOT flag the
+        initial bypass=1 as the engine being stuck in passthrough; tracing
+        the atomic across to audio.c shows cancellation runs whenever a
+        reference signal is present. NOTE: the pa_ringbuffer.* and
+        pa_memorybarrier.h files matched by this glob are vendored — see
+        the dedicated pa_* path instruction below for review scope on those.
+    - path: "tools/echo-cancel/src/pa_*"
+      instructions: >
+        Vendored as-is from PortAudio under a BSD-style license
+        (pa_ringbuffer.c, pa_ringbuffer.h, pa_memorybarrier.h). Do NOT
+        suggest portability or style changes targeting platforms this
+        project does not build on — we only compile for ARM Linux SBCs
+        (Orange Pi / Raspberry Pi) via gcc, which takes the __GNUC__
+        __sync_synchronize() barrier path. Comments about MSVC, _WIN32_WCE,
+        Borland, or Windows SDK intrinsics are out of scope; those reviews
+        belong upstream at portaudio.com. We HAVE applied defensive
+        hardening on top of pa_ringbuffer (NULL checks, zero-size guards,
+        signed-error returns, const-correctness in pointer arithmetic);
+        reviews of those local additions are still useful. pa_memorybarrier.h
+        is unmodified from upstream and should not be reviewed for style.
     - path: "**/*.sh"
       instructions: >
-        These are install/uninstall scripts for an embedded Linux SBC (Orange Pi
-        Zero 2W). Review for POSIX compliance, proper quoting, error handling,
-        and safe use of sudo/root operations.
-    - path: "dkms/**"
+        Install/uninstall scripts for an embedded Linux SBC (Orange Pi Zero
+        2W) running Armbian Trixie. Review for POSIX compliance, proper
+        quoting, error handling, and safe use of sudo/root operations.
+    - path: "**/*.dts"
       instructions: >
-        DKMS kernel module for WM8960 codec. Review for patch correctness and
-        compatibility across kernel versions 6.1 through 6.18+.
+        Device tree overlay for the Allwinner H618 enabling the WM8960 codec
+        on I2C bus 3 at address 0x1a and the AHUB audio subsystem.
   tools:
     shellcheck:
       enabled: true
@@ -35,4 +80,6 @@ reviews:
     actionlint:
       enabled: true
     gitleaks:
+      enabled: true
+    markdownlint:
       enabled: true

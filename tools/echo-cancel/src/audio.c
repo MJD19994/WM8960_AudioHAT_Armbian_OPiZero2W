@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // audio.c
 
 #define _GNU_SOURCE
@@ -9,6 +10,7 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
@@ -99,7 +101,11 @@ static int set_params(snd_pcm_t *handle, unsigned rate, unsigned channels, unsig
         exit(1);
     }
     if (actual_rate != rate) {
-        fprintf(stderr, "Warning: rate %u not available, using %u\n", rate, actual_rate);
+        // frame_size and the Speex echo state are pinned to config.rate, so
+        // proceeding with a different rate desyncs every cycle. Fail loud
+        // instead — same posture as ec_webrtc.cpp's set_params.
+        fprintf(stderr, "ALSA rate mismatch: requested %u, got %u\n", rate, actual_rate);
+        exit(1);
     }
 
     err = snd_pcm_hw_params_set_channels(handle, hw_params, channels);
@@ -159,12 +165,19 @@ static void *playback(void *ptr)
 
     struct stat st;
 
+    // mkfifo() applies the process umask — passing 0666 with default umask 022
+    // gives 0644, which blocks unprivileged user apps from writing /tmp/ec.input.
+    // chmod after creation to enforce the intended mode regardless of umask.
+    // Also re-chmod a pre-existing FIFO in case a previous run created it under
+    // a stricter umask before this fix shipped.
     if (stat(conf->playback_fifo, &st) != 0)
     {
         if (mkfifo(conf->playback_fifo, 0666) != 0) {
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->playback_fifo, strerror(errno));
             exit(1);
         }
+        if (chmod(conf->playback_fifo, 0666) != 0)
+            fprintf(stderr, "Warning: chmod %s 0666 failed: %s\n", conf->playback_fifo, strerror(errno));
     }
     else if (!S_ISFIFO(st.st_mode))
     {
@@ -176,6 +189,13 @@ static void *playback(void *ptr)
             fprintf(stderr, "Failed to create FIFO %s: %s\n", conf->playback_fifo, strerror(errno));
             exit(1);
         }
+        if (chmod(conf->playback_fifo, 0666) != 0)
+            fprintf(stderr, "Warning: chmod %s 0666 failed: %s\n", conf->playback_fifo, strerror(errno));
+    }
+    else
+    {
+        if (chmod(conf->playback_fifo, 0666) != 0)
+            fprintf(stderr, "Warning: chmod %s 0666 failed: %s\n", conf->playback_fifo, strerror(errno));
     }
 
     int fd = open(conf->playback_fifo, O_RDONLY | O_NONBLOCK);
@@ -394,7 +414,7 @@ int capture_start(conf_t *conf)
     if (buf == NULL)
     {
         fprintf(stderr, "Fail to allocate memory.\n");
-        exit(1);
+        return -1;
     }
 
     ring_buffer_size_t ret = PaUtil_InitializeRingBuffer(&g_capture_ringbuffer, buffer_bytes, buffer_size, buf);
@@ -402,7 +422,7 @@ int capture_start(conf_t *conf)
     {
         fprintf(stderr, "Initialize ring buffer but element count is not a power of 2.\n");
         free(buf);
-        exit(1);
+        return -1;
     }
 
     int err = pthread_create(&g_capture_thread, NULL, capture, conf);
@@ -425,7 +445,7 @@ int playback_start(conf_t *conf)
     if (buf == NULL)
     {
         fprintf(stderr, "Fail to allocate memory.\n");
-        exit(1);
+        return -1;
     }
 
     ring_buffer_size_t ret = PaUtil_InitializeRingBuffer(&g_playback_ringbuffer, buffer_bytes, buffer_size, buf);
@@ -433,7 +453,7 @@ int playback_start(conf_t *conf)
     {
         fprintf(stderr, "Initialize ring buffer but element count is not a power of 2.\n");
         free(buf);
-        exit(1);
+        return -1;
     }
 
     int err = pthread_create(&g_playback_thread, NULL, playback, conf);
@@ -449,9 +469,10 @@ int playback_start(conf_t *conf)
 
 int capture_stop(void)
 {
-    void *ret = NULL;
     if (g_capture_ringbuffer.buffer) {
-        pthread_join(g_capture_thread, &ret);
+        int err = pthread_join(g_capture_thread, NULL);
+        if (err != 0)
+            fprintf(stderr, "Warning: capture thread join failed: %s\n", strerror(err));
         free(g_capture_ringbuffer.buffer);
         g_capture_ringbuffer.buffer = NULL;
     }
@@ -461,9 +482,10 @@ int capture_stop(void)
 
 int playback_stop(void)
 {
-    void *ret = NULL;
     if (g_playback_ringbuffer.buffer) {
-        pthread_join(g_playback_thread, &ret);
+        int err = pthread_join(g_playback_thread, NULL);
+        if (err != 0)
+            fprintf(stderr, "Warning: playback thread join failed: %s\n", strerror(err));
         free(g_playback_ringbuffer.buffer);
         g_playback_ringbuffer.buffer = NULL;
     }
@@ -486,6 +508,12 @@ int capture_read(void *buf, size_t frames, int timeout_ms)
 
 int capture_skip(size_t frames, int timeout_ms)
 {
+    /* Return type is int but `frames` is size_t — guard against truncation
+     * before doing any work so callers always see a meaningful value. */
+    if (frames > (size_t)INT_MAX) {
+        fprintf(stderr, "capture_skip: frames %zu exceeds INT_MAX\n", frames);
+        return -1;
+    }
     while (PaUtil_GetRingBufferReadAvailable(&g_capture_ringbuffer) < (ring_buffer_size_t)frames && timeout_ms > 0)
     {
         usleep(1000);
@@ -494,7 +522,11 @@ int capture_skip(size_t frames, int timeout_ms)
     if (PaUtil_GetRingBufferReadAvailable(&g_capture_ringbuffer) < (ring_buffer_size_t)frames) {
         return -1;  /* timeout */
     }
-    return PaUtil_AdvanceRingBufferReadIndex(&g_capture_ringbuffer, frames);
+    PaUtil_AdvanceRingBufferReadIndex(&g_capture_ringbuffer, frames);
+    /* Return frames advanced for caller-friendly accounting. The ring
+     * buffer's AdvanceReadIndex returns the new wrap-masked read index,
+     * which is meaningless to callers expecting a frame count. */
+    return (int)frames;
 }
 
 int playback_read(void *buf, size_t frames, int timeout_ms)

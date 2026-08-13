@@ -127,6 +127,8 @@ sudo ./install.sh --uninstall
 
 ## License
 
-GPLv3 — see [LICENSE-GPL3](LICENSE-GPL3). SpeexDSP engine based on [voice-engine/ec](https://github.com/voice-engine/ec).
+GPLv3 — see [LICENSE-GPL3](LICENSE-GPL3). SpeexDSP engine based on [voice-engine/ec](https://github.com/voice-engine/ec); WebRTC engine is GPLv3 by our choice for consistency within this directory.
 
 The PortAudio ring buffer (`pa_ringbuffer.c`, `pa_ringbuffer.h`, `pa_memorybarrier.h`) is vendored from [PortAudio](http://www.portaudio.com) under a BSD-style license — see the file headers for details. These files are kept close to upstream to preserve compatibility.
+
+For the authoritative per-component breakdown and compatibility notes across the whole repo (MIT for repo glue, GPL-2.0-only for the DKMS kernel module, GPLv3 here), see [../../docs/LICENSING.md](../../docs/LICENSING.md).

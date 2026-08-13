@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # WM8960 Echo Canceller — Install Script
 #
@@ -17,6 +18,18 @@ ALOOP_DKMS_SRC="${SCRIPT_DIR}/../../dkms/snd-aloop"
 
 log() { echo "[EC] $1"; }
 log_error() { echo "[EC] ERROR: $1" >&2; }
+
+# True only for an AEC drop-in this installer wrote. Match the exact first-line
+# marker emitted below, not a substring anywhere in the file — a hand-written
+# config that merely mentions "wm8960-managed" in a comment is still the user's
+# to keep. Install and uninstall must agree on this test, otherwise uninstall
+# deletes files install would have refused to overwrite.
+AEC_MANAGED_MARKER="# wm8960-managed"
+is_managed_aec_conf() {
+    [ -f "$1" ] || return 1
+    IFS= read -r first_line < "$1" || return 1
+    [ "$first_line" = "$AEC_MANAGED_MARKER" ]
+}
 
 if [ "$(id -u)" -ne 0 ]; then
     log_error "This script must be run as root (sudo)"
@@ -43,6 +56,19 @@ if [ "$UNINSTALL" -eq 1 ]; then
     rm -f /usr/local/bin/wm8960-ec
     rm -f /usr/local/bin/wm8960-ec-webrtc
     rm -f /tmp/ec.input /tmp/ec.output
+    # Remove both the new filename and the legacy generic name so users
+    # upgrading from an older installer don't get a stale drop-in left behind.
+    # Only touch the current name if we wrote it: install refuses to overwrite
+    # an unmanaged drop-in, so uninstall must not delete one either. The legacy
+    # 50-aec.conf predates the marker and can't be distinguished, so it is
+    # still removed unconditionally.
+    if [ -f /etc/alsa/conf.d/50-wm8960-aec.conf ]; then
+        if is_managed_aec_conf /etc/alsa/conf.d/50-wm8960-aec.conf; then
+            rm -f /etc/alsa/conf.d/50-wm8960-aec.conf
+        else
+            log "Leaving unmanaged /etc/alsa/conf.d/50-wm8960-aec.conf in place"
+        fi
+    fi
     rm -f /etc/alsa/conf.d/50-aec.conf
     rm -f /etc/modules-load.d/snd-aloop.conf
     systemctl daemon-reload
@@ -64,12 +90,33 @@ fi
 
 # --- Build snd-aloop for WebRTC ---
 if [ "$ENGINE" = "webrtc" ]; then
+    # Pre-flight: refuse to clobber an unmanaged AEC drop-in BEFORE doing
+    # anything with side effects (snd-aloop module, DKMS state,
+    # /etc/modules-load.d). An abort later would leave a partially-installed
+    # WebRTC stack behind on what was supposed to be a clean-fail path.
+    aec_source="${SCRIPT_DIR}/../../configs/alsa-aec.conf"
+    aec_target=/etc/alsa/conf.d/50-wm8960-aec.conf
+    if [ -f "$aec_source" ] && [ -f "$aec_target" ] && \
+       ! is_managed_aec_conf "$aec_target"; then
+        log_error "$aec_target already exists and is not installer-managed; refusing to overwrite. Move or remove it, then re-run."
+        exit 1
+    fi
+
     if ! lsmod | grep -q snd_aloop; then
         if [ -d "$ALOOP_DKMS_SRC" ]; then
             log "Building snd-aloop kernel module via DKMS..."
             rm -rf /usr/src/snd-aloop-1.0
             cp -r "$ALOOP_DKMS_SRC" /usr/src/snd-aloop-1.0
-            dkms remove snd-aloop/1.0 --all 2>/dev/null || true
+            # Only call `dkms remove` if there's actually something to remove,
+            # and don't swallow its failure. A real remove failure (broken
+            # DKMS state, lock contention) followed by `dkms add` would
+            # collide with the still-registered package and abort under set -e.
+            if dkms status snd-aloop/1.0 2>/dev/null | grep -q .; then
+                if ! dkms remove snd-aloop/1.0 --all; then
+                    log_error "Failed to remove existing snd-aloop DKMS registration"
+                    exit 1
+                fi
+            fi
             dkms add snd-aloop/1.0
             dkms install snd-aloop/1.0
         else
@@ -86,11 +133,17 @@ if [ "$ENGINE" = "webrtc" ]; then
     fi
     log "snd-aloop loaded"
 
-    # Install ALSA AEC config
-    if [ -f "${SCRIPT_DIR}/../../configs/alsa-aec.conf" ]; then
+    # Install ALSA AEC config — pre-flight conflict check already ran above.
+    if [ -f "$aec_source" ]; then
         mkdir -p /etc/alsa/conf.d
-        cp "${SCRIPT_DIR}/../../configs/alsa-aec.conf" /etc/alsa/conf.d/50-aec.conf
-        log "ALSA AEC config installed"
+        # Migrate from the legacy generic name if present so users upgrading
+        # from an older installer don't end up with two drop-ins active.
+        rm -f /etc/alsa/conf.d/50-aec.conf
+        {
+            echo "$AEC_MANAGED_MARKER"
+            cat "$aec_source"
+        } > "$aec_target"
+        log "ALSA AEC config installed at $aec_target"
     fi
 fi
 

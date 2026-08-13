@@ -23,6 +23,22 @@
 #include <linux/wait.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+
+/* timer_container_of replaced from_timer upstream in kernel 6.16. Provide a
+ * compat alias so this vendored copy still builds against older headers (6.12
+ * is what Armbian Trixie stable currently ships).
+ *
+ * Probe for the macro itself rather than testing LINUX_VERSION_CODE. A version
+ * test is wrong in both directions: distro kernels backport timer_container_of
+ * under an older version code (the alias would then collide with the real
+ * macro), and an incorrect cutoff silently drops the alias on kernels that
+ * still need it. linux/timer.h must be included first so the upstream macro is
+ * visible to #ifndef — the includes above do not reliably pull it in. */
+#include <linux/timer.h>
+#ifndef timer_container_of
+#define timer_container_of(var, callback_timer, timer_fieldname) \
+	from_timer(var, callback_timer, timer_fieldname)
+#endif
 #include <sound/core.h>
 #include <sound/control.h>
 #include <sound/pcm.h>
