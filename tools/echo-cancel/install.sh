@@ -19,6 +19,18 @@ ALOOP_DKMS_SRC="${SCRIPT_DIR}/../../dkms/snd-aloop"
 log() { echo "[EC] $1"; }
 log_error() { echo "[EC] ERROR: $1" >&2; }
 
+# True only for an AEC drop-in this installer wrote. Match the exact first-line
+# marker emitted below, not a substring anywhere in the file — a hand-written
+# config that merely mentions "wm8960-managed" in a comment is still the user's
+# to keep. Install and uninstall must agree on this test, otherwise uninstall
+# deletes files install would have refused to overwrite.
+AEC_MANAGED_MARKER="# wm8960-managed"
+is_managed_aec_conf() {
+    [ -f "$1" ] || return 1
+    IFS= read -r first_line < "$1" || return 1
+    [ "$first_line" = "$AEC_MANAGED_MARKER" ]
+}
+
 if [ "$(id -u)" -ne 0 ]; then
     log_error "This script must be run as root (sudo)"
     exit 1
@@ -46,7 +58,17 @@ if [ "$UNINSTALL" -eq 1 ]; then
     rm -f /tmp/ec.input /tmp/ec.output
     # Remove both the new filename and the legacy generic name so users
     # upgrading from an older installer don't get a stale drop-in left behind.
-    rm -f /etc/alsa/conf.d/50-wm8960-aec.conf
+    # Only touch the current name if we wrote it: install refuses to overwrite
+    # an unmanaged drop-in, so uninstall must not delete one either. The legacy
+    # 50-aec.conf predates the marker and can't be distinguished, so it is
+    # still removed unconditionally.
+    if [ -f /etc/alsa/conf.d/50-wm8960-aec.conf ]; then
+        if is_managed_aec_conf /etc/alsa/conf.d/50-wm8960-aec.conf; then
+            rm -f /etc/alsa/conf.d/50-wm8960-aec.conf
+        else
+            log "Leaving unmanaged /etc/alsa/conf.d/50-wm8960-aec.conf in place"
+        fi
+    fi
     rm -f /etc/alsa/conf.d/50-aec.conf
     rm -f /etc/modules-load.d/snd-aloop.conf
     systemctl daemon-reload
@@ -75,7 +97,7 @@ if [ "$ENGINE" = "webrtc" ]; then
     aec_source="${SCRIPT_DIR}/../../configs/alsa-aec.conf"
     aec_target=/etc/alsa/conf.d/50-wm8960-aec.conf
     if [ -f "$aec_source" ] && [ -f "$aec_target" ] && \
-       ! grep -q "wm8960-managed" "$aec_target" 2>/dev/null; then
+       ! is_managed_aec_conf "$aec_target"; then
         log_error "$aec_target already exists and is not installer-managed; refusing to overwrite. Move or remove it, then re-run."
         exit 1
     fi
@@ -118,7 +140,7 @@ if [ "$ENGINE" = "webrtc" ]; then
         # from an older installer don't end up with two drop-ins active.
         rm -f /etc/alsa/conf.d/50-aec.conf
         {
-            echo "# wm8960-managed"
+            echo "$AEC_MANAGED_MARKER"
             cat "$aec_source"
         } > "$aec_target"
         log "ALSA AEC config installed at $aec_target"
