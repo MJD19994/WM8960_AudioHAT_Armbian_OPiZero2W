@@ -180,17 +180,33 @@ static int write_all_pcm(snd_pcm_t *pcm, const int16_t *buf,
     return done == frames ? 0 : -1;
 }
 
-// Service runs as root — use O_NOFOLLOW + 0600 so a symlink planted at the
-// debug path can't clobber arbitrary files. The extra S_ISREG check rejects
-// pre-planted FIFOs or device nodes — otherwise an attacker could read our
-// debug audio through a FIFO they own.
+// Open a debug file safely. The service runs as root and these paths live in
+// world-writable /tmp, so validate before writing anything:
+//   O_NOFOLLOW  — a symlink planted at the path can't redirect us elsewhere.
+//   O_NONBLOCK  — a FIFO planted at the path can't wedge open() waiting for a
+//                 reader (it fails ENXIO instead). No effect on regular files.
+//   no O_TRUNC  — truncating happens only after the checks below, so a file
+//                 someone else pre-created is never modified at all.
+//   S_ISREG     — rejects FIFOs and device nodes that survived the above.
+//   st_uid      — rejects a regular file pre-created by another user; without
+//                 this they could pre-create the path and then read the mic
+//                 audio we write into it.
+// Only once the fd is known to be our own regular file do we reassert 0600
+// (an earlier run may have left it more permissive) and truncate.
+// Keep this in sync with the identical helper in ec.c.
 static FILE *open_debug_file(const char *path)
 {
-    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+    int fd = open(path, O_WRONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0 && errno == ENOENT)
+        fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (fd < 0)
         return nullptr;
     struct stat st;
-    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
+    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != geteuid()) {
+        close(fd);
+        return nullptr;
+    }
+    if (fchmod(fd, 0600) < 0 || ftruncate(fd, 0) < 0) {
         close(fd);
         return nullptr;
     }
