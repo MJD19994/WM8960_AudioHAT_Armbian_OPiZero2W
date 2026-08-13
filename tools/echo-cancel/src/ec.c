@@ -45,8 +45,13 @@ static unsigned parse_nonneg(const char *s, const char *name)
 //   st_uid      — rejects a regular file pre-created by another user; without
 //                 this they could pre-create the path and then read the mic
 //                 audio we write into it.
-// Only once the fd is known to be our own regular file do we reassert 0600
-// (an earlier run may have left it more permissive) and truncate.
+//   st_nlink    — rejects a hardlink planted at the path. The uid check alone
+//                 passes for a link to a root-owned file, so without this an
+//                 unprivileged user can point the path at any file root can
+//                 write and have us truncate it. Armbian images ship with
+//                 fs.protected_hardlinks=0, so that link is theirs to make.
+// Only once the fd is known to be our own unlinked regular file do we reassert
+// 0600 (an earlier run may have left it more permissive) and truncate.
 static FILE *open_debug_file(const char *path)
 {
     int fd = open(path, O_WRONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW);
@@ -55,7 +60,8 @@ static FILE *open_debug_file(const char *path)
     if (fd < 0)
         return NULL;
     struct stat st;
-    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != geteuid()) {
+    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) ||
+        st.st_uid != geteuid() || st.st_nlink != 1) {
         close(fd);
         return NULL;
     }
