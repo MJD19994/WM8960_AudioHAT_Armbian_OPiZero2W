@@ -201,7 +201,11 @@ ring_buffer_size_t PaUtil_WriteRingBuffer( PaUtilRingBuffer *rbuf, const void *d
 {
     ring_buffer_size_t size1, size2, numWritten;
     void *data1, *data2;
-    if( rbuf == NULL || (elementCount > 0 && data == NULL) )
+    /* ring_buffer_size_t is signed. A negative count survives the clamp in
+     * GetRingBufferWriteRegions() and reaches memcpy(), where the implicit
+     * conversion to size_t turns it into a huge length. Reject it here rather
+     * than in the vendored region helpers. */
+    if( rbuf == NULL || elementCount < 0 || (elementCount > 0 && data == NULL) )
         return -1;
     numWritten = PaUtil_GetRingBufferWriteRegions( rbuf, elementCount, &data1, &size1, &data2, &size2 );
     /* memcpy with zero length and a NULL pointer is UB in C17 and earlier;
@@ -229,7 +233,9 @@ ring_buffer_size_t PaUtil_ReadRingBuffer( PaUtilRingBuffer *rbuf, void *data, ri
 {
     ring_buffer_size_t size1, size2, numRead;
     void *data1, *data2;
-    if( rbuf == NULL || (elementCount > 0 && data == NULL) )
+    /* Negative counts are rejected here for the same reason as in
+     * PaUtil_WriteRingBuffer() above. */
+    if( rbuf == NULL || elementCount < 0 || (elementCount > 0 && data == NULL) )
         return -1;
     numRead = PaUtil_GetRingBufferReadRegions( rbuf, elementCount, &data1, &size1, &data2, &size2 );
     if( numRead == 0 )
