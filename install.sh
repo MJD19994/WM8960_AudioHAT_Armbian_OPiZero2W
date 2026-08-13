@@ -114,7 +114,19 @@ check_prerequisites() {
     # running kernel) is wrong because once a kernel-image upgrade lands, apt
     # replaces the matching headers package, so the running kernel's headers can
     # disappear and DKMS will fail with "headers cannot be found".
-    INSTALLED_VER=$(dpkg -l 'linux-image-*' 2>/dev/null | awk '/^ii.*linux-image-[0-9]/{print $2}' | sed 's/linux-image-//' | sort -V | tail -1)
+    #
+    # Detect the installed kernel from module trees, not package names: Armbian
+    # names its kernel packages after the branch (linux-image-current-sunxi64),
+    # so the version never appears in the package name and any dpkg-based match
+    # comes back empty here. Requiring build/ (the headers symlink) skips
+    # orphaned /lib/modules directories left behind by removed kernels, and
+    # guarantees the version we pick can satisfy the DKMS build below.
+    INSTALLED_VER=$(
+        for modules_dir in /lib/modules/*; do
+            [ -d "$modules_dir/build" ] || continue
+            printf '%s\n' "${modules_dir##*/}"
+        done | sort -V | tail -1
+    )
     if [ -n "$INSTALLED_VER" ] && [ "$INSTALLED_VER" != "$KERNEL_VER" ]; then
         log_warn "=============================================="
         log_warn "Kernel update pending reboot"
