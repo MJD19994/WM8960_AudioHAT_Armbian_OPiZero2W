@@ -6,12 +6,29 @@ on:
   pull_request:
     branches: [main]
 
+# Every job here only reads the repository. Declaring this explicitly drops the
+# default write-scoped GITHUB_TOKEN, so a compromised build step can't push
+# commits, publish releases, or comment on issues.
+#
+# For the same reason no job needs the checkout credentials written into
+# .git/config, so every checkout below sets persist-credentials: false and is
+# pinned to a commit SHA rather than a mutable tag.
+#
+# The container images below are deliberately left on a floating tag
+# (debian:trixie-slim) rather than pinned to a digest: these jobs publish no
+# artifacts, and a pinned digest would freeze the build base and stop picking
+# up Debian security rebuilds.
+permissions:
+  contents: read
+
 jobs:
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Install ShellCheck
         run: sudo apt-get install -y shellcheck
@@ -27,7 +44,9 @@ jobs:
     name: DTS Compilation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Install device-tree-compiler
         run: sudo apt-get install -y device-tree-compiler
@@ -55,7 +74,9 @@ jobs:
             ca-certificates \
             git
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Build both engines (default target = make all)
         run: |
@@ -84,7 +105,9 @@ jobs:
             ca-certificates \
             git
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Locate kernel headers
         id: khdr
